@@ -1,0 +1,6 @@
+@IntervalEventRegistration_HostAddress = http://localhost:5275
+
+GET {{IntervalEventRegistration_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
