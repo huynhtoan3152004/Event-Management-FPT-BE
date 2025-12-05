@@ -1,5 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using IntervalEventRegistrationRepo.Data;
+using IntervalEventRegistrationRepo.Interfaces;
+using IntervalEventRegistrationRepo.Repository;
+using IntervalEventRegistrationService.Interfaces;
+using IntervalEventRegistrationService.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,6 +21,12 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
                 errorCodesToAdd: null);
         });
 });
+
+// ===== Repository Registration =====
+builder.Services.AddScoped<ISpeakerRepository, SpeakerRepository>();
+
+// ===== Service Registration =====
+builder.Services.AddScoped<ISpeakerService, SpeakerService>();
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
