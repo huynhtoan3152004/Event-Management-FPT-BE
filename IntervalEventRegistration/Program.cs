@@ -1,11 +1,38 @@
+using Microsoft.EntityFrameworkCore;
+using IntervalEventRegistrationRepo.Data;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+
+// ===== Database Configuration =====
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+{
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnectionStringDB"),
+        npgsqlOptions =>
+        {
+            npgsqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(30),
+                errorCodesToAdd: null);
+        });
+});
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// ===== CORS Configuration =====
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
 
 var app = builder.Build();
 
@@ -17,6 +44,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors("AllowAll");
 
 app.UseAuthorization();
 
