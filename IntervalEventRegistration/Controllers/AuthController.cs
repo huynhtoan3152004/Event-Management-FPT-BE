@@ -167,7 +167,7 @@ namespace IntervalEventRegistration.Controllers
                 await _authService.RegisterAsync(request);
 
                 // 3. Trả về thông báo thành công (Data = null vì không cần trả Token)
-                return Ok(ApiResponse<object>.SuccessResponse(null, "Đăng ký thành công. Vui lòng đăng nhập để tiếp tục."));
+                return Ok(ApiResponse<object?>.SuccessResponse(null, "Đăng ký thành công. Vui lòng đăng nhập để tiếp tục."));
             }
             catch (ArgumentException ex) // Bắt lỗi nghiệp vụ (ví dụ: trùng email)
             {

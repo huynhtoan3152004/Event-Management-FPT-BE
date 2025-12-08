@@ -67,11 +67,14 @@ builder.Services.AddScoped<ISpeakerRepository, SpeakerRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IUserAuthProviderRepository, UserAuthProviderRepository>();
 builder.Services.AddScoped<IEventRepository, EventRepository>();
+builder.Services.AddScoped<IHallRepository, HallRepository>();
+builder.Services.AddScoped<ISeatRepository, SeatRepository>();
 // --- Services ---
-builder.Services.AddScoped<ICloudinaryService, CloudinaryService>(); // Mới thêm từ file của bạn
+builder.Services.AddScoped<ICloudinaryService, CloudinaryService>();
 builder.Services.AddScoped<ISpeakerService, SpeakerService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IEventService, EventService>();
+builder.Services.AddScoped<IHallService, HallService>();
 builder.Services.AddControllers();
 
 // ==================================================================
