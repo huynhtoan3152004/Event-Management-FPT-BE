@@ -2,6 +2,7 @@ using CloudinaryDotNet;
 using CloudinaryDotNet.Actions;
 using IntervalEventRegistrationService.Configuration;
 using IntervalEventRegistrationService.Interfaces;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
 namespace IntervalEventRegistrationService.Services;
@@ -32,13 +33,12 @@ public class CloudinaryService : ICloudinaryService
         {
             using (var stream = file.OpenReadStream())
             {
-                var uploadParams = new RawUploadParams()
+                var uploadParams = new ImageUploadParams()
                 {
                     File = new FileDescription(file.FileName, stream),
                     Folder = $"interval-event-registration/{folder}",
                     PublicId = publicId ?? Guid.NewGuid().ToString(),
-                    Overwrite = true,
-                    ResourceType = "auto"
+                    Overwrite = true
                 };
 
                 var uploadResult = await _cloudinary.UploadAsync(uploadParams);
@@ -108,14 +108,20 @@ public class CloudinaryService : ICloudinaryService
 
         try
         {
-            var url = CloudinaryExtensions.CloudinaryUrl(publicId)
-                .Transform(new Transformation()
-                    .Quality(quality)
-                    .Width(width)
-                    .Height(height)
-                    .Crop("fill")
-                    .FetchFormat("auto"))
-                .BuildUrl();
+            // Xây dựng URL tối ưu hóa từ Cloudinary
+            var transformation = new Transformation()
+                .Quality(quality)
+                .FetchFormat("auto");
+
+            if (width.HasValue)
+                transformation = transformation.Width(width.Value);
+            
+            if (height.HasValue)
+                transformation = transformation.Height(height.Value);
+
+            var url = _cloudinary.Api.UrlImgUp
+                .Transform(transformation)
+                .BuildUrl(publicId);
 
             return url;
         }

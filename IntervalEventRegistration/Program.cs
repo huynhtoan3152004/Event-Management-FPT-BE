@@ -11,7 +11,10 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 
 // ===== Cloudinary Configuration =====
-builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
+builder.Services.Configure<CloudinarySettings>(
+    builder.Configuration.GetSection("Cloudinary"));
+
+// Đăng ký CloudinaryService
 builder.Services.AddScoped<ICloudinaryService, CloudinaryService>();
 
 // ===== Database Configuration =====
