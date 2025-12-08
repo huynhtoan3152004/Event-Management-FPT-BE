@@ -2,6 +2,15 @@
 ## .NET / C# / Visual Studio
 ## =============================================
 
+# Environment Variables & Secrets
+.env
+.env.local
+.env.production
+.env.staging
+*.env
+appsettings.Production.json
+appsettings.Staging.json
+
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
@@ -169,11 +178,18 @@ Desktop.ini
 .env.local
 .env.*.local
 *.env
+
+# CHỈ ignore file local có secrets thật
 appsettings.local.json
 appsettings.*.local.json
-appsettings.json
-appsettings.Development.json
+appsettings.Production.json
+appsettings.Staging.json
 secrets.json
+
+# ✅ KHÔNG ignore appsettings.json và appsettings.Development.json
+# Vì cần commit để Docker build được
+# appsettings.json
+# appsettings.Development.json
 
 ## =============================================
 ## Logs
