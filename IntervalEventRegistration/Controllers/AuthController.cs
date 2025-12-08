@@ -1,4 +1,5 @@
-﻿using IntervalEventRegistrationService.DTOs.Request.Auth;
+﻿using IntervalEventRegistrationService.DTOs.Common;
+using IntervalEventRegistrationService.DTOs.Request.Auth;
 using IntervalEventRegistrationService.DTOs.Response.Auth;
 using IntervalEventRegistrationService.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -143,6 +144,38 @@ namespace IntervalEventRegistration.Controllers
                 {
                     message = "An error occurred while logging in with email and password."
                 });
+            }
+        }
+
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromBody] RegisterRequestDto request)
+        {
+            // 1. Validate ModelState (bao gồm check Required, ConfirmPassword, Role Regex...)
+            if (!ModelState.IsValid)
+            {
+                var errors = ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .ToList();
+
+                return BadRequest(ApiResponse<object>.FailureResponse("Dữ liệu đăng ký không hợp lệ", errors));
+            }
+
+            try
+            {
+                // 2. Gọi Service để tạo tài khoản
+                await _authService.RegisterAsync(request);
+
+                // 3. Trả về thông báo thành công (Data = null vì không cần trả Token)
+                return Ok(ApiResponse<object>.SuccessResponse(null, "Đăng ký thành công. Vui lòng đăng nhập để tiếp tục."));
+            }
+            catch (ArgumentException ex) // Bắt lỗi nghiệp vụ (ví dụ: trùng email)
+            {
+                return BadRequest(ApiResponse<object>.FailureResponse(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.FailureResponse("Lỗi hệ thống: " + ex.Message));
             }
         }
 
