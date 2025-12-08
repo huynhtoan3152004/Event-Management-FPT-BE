@@ -342,6 +342,45 @@ namespace IntervalEventRegistrationService.Services
             };
         }
 
+        public async Task RegisterAsync(RegisterRequestDto request)
+        {
+            // 1. Kiểm tra Email đã tồn tại chưa
+            var existingUser = await _userRepository.GetByEmailAsync(request.Email);
+            if (existingUser != null)
+            {
+                throw new ArgumentException("Email này đã được sử dụng.");
+            }
 
+            // 2. Hash mật khẩu bằng BCrypt
+            string passwordHash = BCryptNet.HashPassword(request.Password);
+
+            // 3. Chuẩn hóa Role (đưa về chữ thường để khớp với Database Seed Data)
+            string normalizedRole = request.RoleId.ToLower().Trim();
+
+            // 4. Tạo Entity User
+            var newUser = new User
+            {
+                UserId = Guid.NewGuid().ToString(),
+                Name = request.Name,
+                Email = request.Email,
+                Phone = request.Phone,
+                PasswordHash = passwordHash,
+                RoleId = normalizedRole,
+
+               
+               
+                // Các trạng thái mặc định
+                Status = "active",
+                EmailVerified = false,
+                CreatedAt = DateTime.UtcNow,
+                IsDeleted = false
+            };
+
+            // 5. Lưu xuống Database
+            await _userRepository.AddAsync(newUser);
+            await _userRepository.SaveChangesAsync();
+
+            // KHÔNG sinh Token ở đây nữa. Kết thúc hàm.
+        }
     }
 }

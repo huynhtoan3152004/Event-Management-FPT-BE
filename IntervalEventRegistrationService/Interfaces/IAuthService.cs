@@ -33,5 +33,10 @@ namespace IntervalEventRegistrationService.Interfaces
         Task<AuthResponseDto> LoginWithEmailPasswordAsync(EmailPasswordLoginRequestDto request);
 
 
+        /// <summary>
+        /// Đăng ký tài khoản mới (Student, Staff, Organizer)
+        /// </summary>
+        Task RegisterAsync(RegisterRequestDto request);
+
     }
 }
