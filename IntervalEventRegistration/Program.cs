@@ -2,12 +2,17 @@ using Microsoft.EntityFrameworkCore;
 using IntervalEventRegistrationRepo.Data;
 using IntervalEventRegistrationRepo.Interfaces;
 using IntervalEventRegistrationRepo.Repository;
+using IntervalEventRegistrationService.Configuration;
 using IntervalEventRegistrationService.Interfaces;
 using IntervalEventRegistrationService.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+
+// ===== Cloudinary Configuration =====
+builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
+builder.Services.AddScoped<ICloudinaryService, CloudinaryService>();
 
 // ===== Database Configuration =====
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
