@@ -13,6 +13,15 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 // ==================================================================
+// 0. CONFIGURATION LOADING (Load local config files if exist)
+// ==================================================================
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true)
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.local.json", optional: true, reloadOnChange: true)
+    .AddEnvironmentVariables();
+
+// ==================================================================
 // 1. CONFIGURATION BINDING (Đọc cấu hình từ appsettings.json)
 // ==================================================================
 
@@ -74,7 +83,8 @@ var jwtSettings = jwtSection.Get<JwtSettings>();
 // Kiểm tra null để tránh crash nếu quên cấu hình
 if (jwtSettings == null || string.IsNullOrEmpty(jwtSettings.SecretKey))
 {
-    // Lưu ý: Có thể log warning thay vì throw exception nếu muốn app vẫn chạy mà không có Auth
+    Console.WriteLine("❌ ERROR: JWT Settings are missing or invalid!");
+    Console.WriteLine("Please check appsettings.json or Environment Variables.");
     throw new InvalidOperationException("JWT Settings are missing or invalid in appsettings.json");
 }
 
@@ -161,11 +171,17 @@ var app = builder.Build();
 // ==================================================================
 // 7. MIDDLEWARE PIPELINE
 // ==================================================================
-if (app.Environment.IsDevelopment())
+
+// Health check endpoint (cho Docker HEALTHCHECK)
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+
+// ✅ ENABLE SWAGGER CHO TẤT CẢ ENVIRONMENTS (để test trên Coolify)
+app.UseSwagger();
+app.UseSwaggerUI(options =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "Interval Event Registration API v1");
+    options.RoutePrefix = "swagger"; // URL: /swagger
+});
 
 app.UseHttpsRedirection();
 
@@ -175,5 +191,12 @@ app.UseAuthentication(); // Đăng nhập
 app.UseAuthorization();  // Phân quyền
 
 app.MapControllers();
+
+// Log startup info
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+logger.LogInformation("🚀 Application started successfully!");
+logger.LogInformation("📍 Environment: {Environment}", app.Environment.EnvironmentName);
+logger.LogInformation("🔗 Swagger UI: /swagger");
+logger.LogInformation("❤️ Health Check: /health");
 
 app.Run();

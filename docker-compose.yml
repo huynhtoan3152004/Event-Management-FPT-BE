@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # PostgreSQL Database
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: interval_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-interval_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-interval_password}
+      POSTGRES_DB: ${POSTGRES_DB:-interval_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - interval_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-interval_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # ASP.NET Core API
+  # ============================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: interval_api
+    environment:
+      # Load từ file .env
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnectionStringDB=${ConnectionStrings__DefaultConnectionStringDB}
+      - Jwt__Issuer=${Jwt__Issuer}
+      - Jwt__Audience=${Jwt__Audience}
+      - Jwt__SecretKey=${Jwt__SecretKey}
+      - Jwt__AccessTokenMinutes=${Jwt__AccessTokenMinutes}
+      - GoogleAuth__ClientId=${GoogleAuth__ClientId}
+      - GoogleAuth__ValidIssuer=${GoogleAuth__ValidIssuer}
+      - GoogleAuth__Audience=${GoogleAuth__Audience}
+      - Cloudinary__CloudName=${Cloudinary__CloudName}
+      - Cloudinary__ApiKey=${Cloudinary__ApiKey}
+      - Cloudinary__ApiSecret=${Cloudinary__ApiSecret}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - interval_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  interval_network:
+    driver: bridge
