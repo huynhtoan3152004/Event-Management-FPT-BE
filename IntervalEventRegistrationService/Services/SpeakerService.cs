@@ -4,16 +4,19 @@ using IntervalEventRegistrationService.DTOs.Common;
 using IntervalEventRegistrationService.DTOs.Request;
 using IntervalEventRegistrationService.DTOs.Response;
 using IntervalEventRegistrationService.Interfaces;
+using Microsoft.AspNetCore.Http;
 
 namespace IntervalEventRegistrationService.Services;
 
 public class SpeakerService : ISpeakerService
 {
     private readonly ISpeakerRepository _speakerRepository;
+    private readonly ICloudinaryService _cloudinaryService;
 
-    public SpeakerService(ISpeakerRepository speakerRepository)
+    public SpeakerService(ISpeakerRepository speakerRepository, ICloudinaryService cloudinaryService)
     {
         _speakerRepository = speakerRepository;
+        _cloudinaryService = cloudinaryService;
     }
 
     public async Task<PagedResponse<SpeakerResponseDto>> GetAllSpeakersAsync(PaginationRequest request)
@@ -70,13 +73,30 @@ public class SpeakerService : ISpeakerService
 
     public async Task<ApiResponse<SpeakerResponseDto>> CreateSpeakerAsync(CreateSpeakerRequest request)
     {
-        // Check duplicate email if provided
+        // Kiểm tra email trùng lặp nếu được cung cấp
         if (!string.IsNullOrWhiteSpace(request.Email))
         {
             var existingSpeaker = await _speakerRepository.GetByEmailAsync(request.Email);
             if (existingSpeaker != null)
             {
                 return ApiResponse<SpeakerResponseDto>.FailureResponse("Email đã được sử dụng cho speaker khác");
+            }
+        }
+
+        // Biến lưu URL ảnh sau upload
+        string? avatarUrl = null;
+
+        // Nếu có file ảnh được upload, tiến hành upload lên Cloudinary
+        if (request.AvatarFile is not null && request.AvatarFile.Length > 0)
+        {
+            try
+            {
+                // Upload ảnh lên Cloudinary trong thư mục "speakers"
+                avatarUrl = await _cloudinaryService.UploadAsync(request.AvatarFile, "speakers");
+            }
+            catch (Exception ex)
+            {
+                return ApiResponse<SpeakerResponseDto>.FailureResponse($"Lỗi upload ảnh: {ex.Message}");
             }
         }
 
@@ -89,7 +109,8 @@ public class SpeakerService : ISpeakerService
             Email = request.Email,
             Phone = request.Phone,
             LinkedinUrl = request.LinkedinUrl,
-            AvatarUrl = request.AvatarUrl
+            // Sử dụng URL từ Cloudinary hoặc để trống nếu không có ảnh
+            AvatarUrl = avatarUrl
         };
 
         var createdSpeaker = await _speakerRepository.CreateAsync(speaker);
@@ -108,7 +129,7 @@ public class SpeakerService : ISpeakerService
             return ApiResponse<SpeakerResponseDto>.FailureResponse("Không tìm thấy speaker");
         }
 
-        // Check duplicate email if changed
+        // Kiểm tra email trùng lặp nếu email được thay đổi
         if (!string.IsNullOrWhiteSpace(request.Email) && request.Email != speaker.Email)
         {
             var existingSpeaker = await _speakerRepository.GetByEmailAsync(request.Email);
@@ -118,7 +139,22 @@ public class SpeakerService : ISpeakerService
             }
         }
 
-        // Update fields
+        // Nếu có file ảnh mới được upload, tiến hành upload lên Cloudinary
+        if (request.AvatarFile is not null && request.AvatarFile.Length > 0)
+        {
+            try
+            {
+                // Upload ảnh mới lên Cloudinary trong thư mục "speakers"
+                speaker.AvatarUrl = await _cloudinaryService.UploadAsync(request.AvatarFile, "speakers");
+            }
+            catch (Exception ex)
+            {
+                return ApiResponse<SpeakerResponseDto>.FailureResponse($"Lỗi upload ảnh: {ex.Message}");
+            }
+        }
+        // Nếu không có file ảnh mới, giữ nguyên ảnh cũ
+
+        // Cập nhật các trường thông tin
         speaker.Name = request.Name;
         speaker.Title = request.Title;
         speaker.Company = request.Company;
@@ -126,7 +162,6 @@ public class SpeakerService : ISpeakerService
         speaker.Email = request.Email;
         speaker.Phone = request.Phone;
         speaker.LinkedinUrl = request.LinkedinUrl;
-        speaker.AvatarUrl = request.AvatarUrl;
 
         var updatedSpeaker = await _speakerRepository.UpdateAsync(speaker);
 

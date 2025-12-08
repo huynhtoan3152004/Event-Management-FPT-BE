@@ -47,7 +47,8 @@ public class SpeakersController : ControllerBase
     /// Tạo speaker mới
     /// </summary>
     [HttpPost]
-    public async Task<IActionResult> CreateSpeaker([FromBody] CreateSpeakerRequest request)
+    [Consumes("multipart/form-data")] // Hỗ trợ form-data với file upload
+    public async Task<IActionResult> CreateSpeaker([FromForm] CreateSpeakerRequest request)
     {
         if (!ModelState.IsValid)
         {
@@ -73,7 +74,8 @@ public class SpeakersController : ControllerBase
     /// Cập nhật thông tin speaker
     /// </summary>
     [HttpPut("{id}")]
-    public async Task<IActionResult> UpdateSpeaker(string id, [FromBody] UpdateSpeakerRequest request)
+    [Consumes("multipart/form-data")] // Hỗ trợ form-data với file upload
+    public async Task<IActionResult> UpdateSpeaker(string id, [FromForm] UpdateSpeakerRequest request)
     {
         if (!ModelState.IsValid)
         {

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http;
 
 namespace IntervalEventRegistrationService.DTOs.Request;
 
@@ -28,9 +29,8 @@ public class CreateSpeakerRequest
     [StringLength(500, ErrorMessage = "URL không được vượt quá 500 ký tự")]
     public string? LinkedinUrl { get; set; }
 
-    [Url(ErrorMessage = "URL Avatar không hợp lệ")]
-    [StringLength(500, ErrorMessage = "URL không được vượt quá 500 ký tự")]
-    public string? AvatarUrl { get; set; }
+    // Trường để upload ảnh avatar (không bắt buộc)
+    public IFormFile? AvatarFile { get; set; }
 }
 
 public class UpdateSpeakerRequest
@@ -59,7 +59,6 @@ public class UpdateSpeakerRequest
     [StringLength(500, ErrorMessage = "URL không được vượt quá 500 ký tự")]
     public string? LinkedinUrl { get; set; }
 
-    [Url(ErrorMessage = "URL Avatar không hợp lệ")]
-    [StringLength(500, ErrorMessage = "URL không được vượt quá 500 ký tự")]
-    public string? AvatarUrl { get; set; }
+    // Trường để upload ảnh avatar (không bắt buộc)
+    public IFormFile? AvatarFile { get; set; }
 }
