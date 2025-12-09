@@ -1,4 +1,4 @@
-﻿using IntervalEventRegistrationRepo.Entities;
+﻿    using IntervalEventRegistrationRepo.Entities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -29,5 +29,17 @@ namespace IntervalEventRegistrationRepo.Interfaces
 
         // Lưu thay đổi xuống database
         Task SaveChangesAsync();
+
+        Task<(IReadOnlyList<User> Users, int TotalItems)> GetUsersForAdminAsync( // Khai báo method bất đồng bộ trả về tuple danh sách user + tổng số bản ghi
+           string? keyword,    // Chuỗi keyword để search theo Name/Email; null nếu không search
+           string? roleId,     // Role cần lọc (admin/organizer/staff/student); null nếu không lọc
+           string? status,     // Trạng thái cần lọc (active/inactive/...); null nếu không lọc
+           int pageNumber,     // Số trang hiện tại, bắt đầu từ 1
+           int pageSize        // Số bản ghi trên mỗi trang
+       );
+
+        Task<User?> GetByIdAsync(string userId, bool includeDeleted = false); // Lấy một user theo Id, includeDeleted = true để cho phép Admin xem cả user đã bị soft delete
+
+
     }
 }

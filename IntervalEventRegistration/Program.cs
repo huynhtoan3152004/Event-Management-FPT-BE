@@ -75,6 +75,8 @@ builder.Services.AddScoped<ISpeakerService, SpeakerService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<IHallService, HallService>();
+builder.Services.AddScoped<IUserService, UserService>(); 
+
 builder.Services.AddControllers();
 
 // ==================================================================
