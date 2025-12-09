@@ -55,6 +55,9 @@ public class CreateEventRequest
 
     // File upload cho ảnh sự kiện
     public IFormFile? ImageFile { get; set; }
+
+    // Danh sách Speaker IDs
+    public List<string>? SpeakerIds { get; set; }
 }
 
 public class UpdateEventRequest

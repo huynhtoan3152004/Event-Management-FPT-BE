@@ -33,12 +33,12 @@ public class TicketService : ITicketService
         {
             return ApiResponse<TicketDto>.FailureResponse("Sự kiện chưa mở đăng ký");
         }
-        var now = DateTime.UtcNow;
-        if (ev.RegistrationStart.HasValue && now < ev.RegistrationStart.Value)
+        var now = DateTime.Now; // Use local time instead of UTC
+        if (ev.RegistrationStart.HasValue && now < ev.RegistrationStart.Value.ToLocalTime())
         {
             return ApiResponse<TicketDto>.FailureResponse("Chưa đến thời điểm đăng ký");
         }
-        if (ev.RegistrationEnd.HasValue && now > ev.RegistrationEnd.Value)
+        if (ev.RegistrationEnd.HasValue && now > ev.RegistrationEnd.Value.ToLocalTime())
         {
             return ApiResponse<TicketDto>.FailureResponse("Đã hết thời gian đăng ký");
         }
