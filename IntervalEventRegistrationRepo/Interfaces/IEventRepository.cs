@@ -19,7 +19,7 @@ public interface IEventRepository
     Task AddAsync(Event @event);
     Task<Event> UpdateAsync(Event @event);
     Task<bool> DeleteAsync(string eventId);
-    Task<bool> ExistsAsync(string hallId);
+    Task<bool> ExistsAsync(string eventId);
     Task<int> GetRegisteredCountAsync(string eventId);
     Task SaveChangesAsync();
 }

@@ -30,6 +30,15 @@ public class SeatRepository : ISeatRepository
             .ToListAsync();
     }
 
+    public async Task<List<Seat>> GetByEventIdAsync(string eventId)
+    {
+        return await _context.Seats
+            .Where(s => s.EventId == eventId && !s.IsDeleted)
+            .OrderBy(s => s.RowLabel)
+            .ThenBy(s => s.SeatNumber)
+            .ToListAsync();
+    }
+
     public async Task<int> CountByHallIdAsync(string hallId)
     {
         return await _context.Seats
@@ -69,6 +78,21 @@ public class SeatRepository : ISeatRepository
             seat.UpdatedAt = DateTime.UtcNow;
             await UpdateAsync(seat);
         }
+    }
+
+    public async Task DeleteByEventIdAsync(string eventId)
+    {
+        var seats = await _context.Seats
+            .Where(s => s.EventId == eventId && !s.IsDeleted)
+            .ToListAsync();
+        
+        foreach (var seat in seats)
+        {
+            seat.IsDeleted = true;
+            seat.UpdatedAt = DateTime.UtcNow;
+        }
+        
+        _context.Seats.UpdateRange(seats);
     }
 
     public async Task SaveChangesAsync()
