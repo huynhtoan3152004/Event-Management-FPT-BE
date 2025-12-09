@@ -69,12 +69,17 @@ builder.Services.AddScoped<IUserAuthProviderRepository, UserAuthProviderReposito
 builder.Services.AddScoped<IEventRepository, EventRepository>();
 builder.Services.AddScoped<IHallRepository, HallRepository>();
 builder.Services.AddScoped<ISeatRepository, SeatRepository>();
+builder.Services.AddScoped<ITicketRepository, TicketRepository>();
+builder.Services.AddScoped<ITicketCheckinRepository, TicketCheckinRepository>();
+
 // --- Services ---
 builder.Services.AddScoped<ICloudinaryService, CloudinaryService>();
 builder.Services.AddScoped<ISpeakerService, SpeakerService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<IHallService, HallService>();
+builder.Services.AddScoped<ITicketService, TicketService>();
+
 builder.Services.AddControllers();
 
 // ==================================================================
