@@ -132,4 +132,47 @@ public class EventsController : ControllerBase
 
         return Ok(result);
     }
+
+
+    [HttpPost("{id}/publish")]
+    [Authorize(Roles = "organizer")]
+    public async Task<IActionResult> PublishEvent(string id)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var userRole = User.FindFirstValue(ClaimTypes.Role)!;
+        var result = await _eventService.PublishEventAsync(id, userId, userRole);
+        if (!result.Success)
+        {
+            return BadRequest(result);
+        }
+        return Ok(result);
+    }
+
+    [HttpPost("{id}/cancel")]
+    [Authorize(Roles = "organizer")]
+    public async Task<IActionResult> CancelEvent(string id)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var userRole = User.FindFirstValue(ClaimTypes.Role)!;
+        var result = await _eventService.CancelEventAsync(id, userId, userRole);
+        if (!result.Success)
+        {
+            return BadRequest(result);
+        }
+        return Ok(result);
+    }
+
+    [HttpPost("{id}/complete")]
+    [Authorize(Roles = "organizer")]
+    public async Task<IActionResult> CompleteEvent(string id)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var userRole = User.FindFirstValue(ClaimTypes.Role)!;
+        var result = await _eventService.CompleteEventAsync(id, userId, userRole);
+        if (!result.Success)
+        {
+            return BadRequest(result);
+        }
+        return Ok(result);
+    }
 }

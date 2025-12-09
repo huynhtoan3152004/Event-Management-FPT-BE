@@ -108,6 +108,10 @@ public class HallService : IHallService
         string currentUserId,
         string currentUserRole)
     {
+        if (currentUserRole != "organizer")
+        {
+            return ApiResponse<HallDetailDto>.FailureResponse("Bạn không có quyền chỉnh sửa hội trường này");
+        }
         var hall = await _hallRepository.GetByIdAsync(hallId);
 
         if (hall == null)
@@ -145,6 +149,10 @@ public class HallService : IHallService
         string currentUserId,
         string currentUserRole)
     {
+        if (currentUserRole != "organizer")
+        {
+            return ApiResponse<bool>.FailureResponse("Chỉ Organizer mới có quyền xóa hội trường");
+        }
         var hall = await _hallRepository.GetByIdAsync(hallId);
 
         if (hall == null)
@@ -190,6 +198,18 @@ public class HallService : IHallService
                 seats = seats.Where(s => s.Status == seatType).ToList();
             }
 
+            if (isActive.HasValue)
+            {
+                if (isActive.Value)
+                {
+                    seats = seats.Where(s => s.Status == "available").ToList();
+                }
+                else
+                {
+                    seats = seats.Where(s => s.Status != "available").ToList();
+                }
+            }
+
             var seatDtos = seats.Select(s => new SeatDto
             {
                 SeatId = s.SeatId,
@@ -225,6 +245,10 @@ public class HallService : IHallService
     {
         try
         {
+            if (currentUserRole != "organizer")
+            {
+                return ApiResponse<List<SeatDto>>.FailureResponse("Chỉ Organizer mới có quyền tạo ghế");
+            }
             // 1. Validate Hall exists
             var hall = await _hallRepository.GetByIdAsync(hallId);
             if (hall == null || hall.IsDeleted)
@@ -323,7 +347,7 @@ public class HallService : IHallService
             }
 
             // 2. Check current status
-            bool isAvailable = hall.Status == "available" && hall.IsActive;
+            bool isAvailable = hall.Status == "active" && hall.IsActive;
 
             // 3. Count total seats
             var totalSeats = await _seatRepository.CountByHallIdAsync(hallId);

@@ -36,5 +36,20 @@ namespace IntervalEventRegistrationService.Interfaces
             string eventId, 
             string currentUserId, 
             string currentUserRole);
+
+        Task<ApiResponse<EventDetailDto>> PublishEventAsync(
+            string eventId,
+            string currentUserId,
+            string currentUserRole);
+
+        Task<ApiResponse<EventDetailDto>> CancelEventAsync(
+            string eventId,
+            string currentUserId,
+            string currentUserRole);
+
+        Task<ApiResponse<EventDetailDto>> CompleteEventAsync(
+            string eventId,
+            string currentUserId,
+            string currentUserRole);
     }
 }

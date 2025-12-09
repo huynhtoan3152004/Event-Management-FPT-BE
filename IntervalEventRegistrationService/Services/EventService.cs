@@ -11,11 +11,13 @@ public class EventService : IEventService
 {
     private readonly IEventRepository _eventRepository;
     private readonly ICloudinaryService _cloudinaryService;
+    private readonly IHallRepository _hallRepository;
 
-    public EventService(IEventRepository eventRepository, ICloudinaryService cloudinaryService)
+    public EventService(IEventRepository eventRepository, ICloudinaryService cloudinaryService, IHallRepository hallRepository)
     {
         _eventRepository = eventRepository;
         _cloudinaryService = cloudinaryService;
+        _hallRepository = hallRepository;
     }
 
     public async Task<PagedResponse<EventListItemDto>> GetAllEventsAsync(
@@ -40,6 +42,11 @@ public class EventService : IEventService
             request.DateTo,
             request.HallId,
             request.OrganizerId);
+
+        foreach (var e in events)
+        {
+            await ApplyAutoTransitionsAsync(e);
+        }
 
         var eventDtos = events.Select(e => MapToListItemDto(e)).ToList();
 
@@ -80,6 +87,7 @@ public class EventService : IEventService
             }
         }
 
+        await ApplyAutoTransitionsAsync(eventEntity);
         var dto = MapToDetailDto(eventEntity);
         return ApiResponse<EventDetailDto>.SuccessResponse(dto, "Lấy thông tin sự kiện thành công");
     }
@@ -95,6 +103,24 @@ public class EventService : IEventService
         if (request.Date < DateOnly.FromDateTime(DateTime.UtcNow))
         {
             return ApiResponse<EventDetailDto>.FailureResponse("Ngày sự kiện không được ở quá khứ");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.HallId))
+        {
+            var hall = await _hallRepository.GetByIdAsync(request.HallId!);
+            if (hall == null || hall.IsDeleted)
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy hội trường");
+            }
+            if (request.TotalSeats > hall.Capacity)
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse($"Tổng số ghế ({request.TotalSeats}) vượt quá sức chứa hội trường ({hall.Capacity})");
+            }
+            var hallAvailable = await _hallRepository.IsHallAvailableAsync(request.HallId!, request.Date, request.StartTime, request.EndTime);
+            if (!hallAvailable)
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse("Hội trường đang có sự kiện trùng thời gian");
+            }
         }
 
         // Upload image if provided
@@ -118,7 +144,7 @@ public class EventService : IEventService
             ClubId = request.ClubId,
             ClubName = request.ClubName,
             ImageUrl = imageUrl,
-            Status = "draft", // Default status
+            Status = "draft",
             TotalSeats = request.TotalSeats,
             RegisteredCount = 0,
             CheckedInCount = 0,
@@ -171,6 +197,24 @@ public class EventService : IEventService
         {
             return ApiResponse<EventDetailDto>.FailureResponse(
                 $"Không thể giảm số ghế xuống dưới {eventEntity.RegisteredCount} (số người đã đăng ký)");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.HallId))
+        {
+            var hall = await _hallRepository.GetByIdAsync(request.HallId!);
+            if (hall == null || hall.IsDeleted)
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy hội trường");
+            }
+            if (request.TotalSeats > hall.Capacity)
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse($"Tổng số ghế ({request.TotalSeats}) vượt quá sức chứa hội trường ({hall.Capacity})");
+            }
+            var conflicts = await _hallRepository.GetConflictingEventsAsync(request.HallId!, request.Date, request.StartTime, request.EndTime);
+            if (conflicts.Any(c => c.EventId != eventId))
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse("Hội trường đang có sự kiện trùng thời gian");
+            }
         }
 
         // Upload new image if provided
@@ -230,7 +274,111 @@ public class EventService : IEventService
         return ApiResponse<bool>.SuccessResponse(true, "Xóa sự kiện thành công");
     }
 
+
+    public async Task<ApiResponse<EventDetailDto>> PublishEventAsync(string eventId, string currentUserId, string currentUserRole)
+    {
+        if (currentUserRole != "organizer")
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse("Bạn không có quyền công bố sự kiện này");
+        }
+        var eventEntity = await _eventRepository.GetByIdAsync(eventId);
+        if (eventEntity == null)
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy sự kiện");
+        }
+        if (eventEntity.Status == "cancelled" || eventEntity.Status == "completed")
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse("Không thể công bố sự kiện đã hủy hoặc đã hoàn thành");
+        }
+        var now = DateTime.UtcNow;
+        if (eventEntity.RegistrationStart.HasValue && now < eventEntity.RegistrationStart.Value)
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse("Chưa đến thời điểm publish (RegistrationStart)");
+        }
+        eventEntity.Status = "published";
+        await _eventRepository.UpdateAsync(eventEntity);
+        await _eventRepository.SaveChangesAsync();
+        var dto = MapToDetailDto(eventEntity);
+        return ApiResponse<EventDetailDto>.SuccessResponse(dto, "Công bố sự kiện thành công");
+    }
+
+    public async Task<ApiResponse<EventDetailDto>> CancelEventAsync(string eventId, string currentUserId, string currentUserRole)
+    {
+        if (currentUserRole != "organizer")
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse("Bạn không có quyền hủy sự kiện này");
+        }
+        var eventEntity = await _eventRepository.GetByIdAsync(eventId);
+        if (eventEntity == null)
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy sự kiện");
+        }
+        var eventStart = new DateTime(eventEntity.Date.Year, eventEntity.Date.Month, eventEntity.Date.Day,
+            eventEntity.StartTime.Hour, eventEntity.StartTime.Minute, eventEntity.StartTime.Second, DateTimeKind.Utc);
+        var now = DateTime.UtcNow;
+        if (now > eventStart.AddHours(-48))
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse("Chỉ được hủy trước thời điểm diễn ra 48 giờ");
+        }
+        if (eventEntity.TotalSeats > 0 && eventEntity.RegisteredCount > (eventEntity.TotalSeats / 2))
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse("Không thể hủy khi số lượng đăng ký vượt quá 50% số ghế");
+        }
+        eventEntity.Status = "cancelled";
+        await _eventRepository.UpdateAsync(eventEntity);
+        await _eventRepository.SaveChangesAsync();
+        var dto = MapToDetailDto(eventEntity);
+        return ApiResponse<EventDetailDto>.SuccessResponse(dto, "Hủy sự kiện thành công");
+    }
+
+    public async Task<ApiResponse<EventDetailDto>> CompleteEventAsync(string eventId, string currentUserId, string currentUserRole)
+    {
+        if (currentUserRole != "organizer")
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse("Bạn không có quyền đóng sự kiện này");
+        }
+        var eventEntity = await _eventRepository.GetByIdAsync(eventId);
+        if (eventEntity == null)
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy sự kiện");
+        }
+        eventEntity.Status = "completed";
+        await _eventRepository.UpdateAsync(eventEntity);
+        await _eventRepository.SaveChangesAsync();
+        var dto = MapToDetailDto(eventEntity);
+        return ApiResponse<EventDetailDto>.SuccessResponse(dto, "Đóng sự kiện thành công");
+    }
+
     // Helper methods
+    private async Task<bool> ApplyAutoTransitionsAsync(Event e)
+    {
+        bool changed = false;
+        var now = DateTime.UtcNow;
+
+        DateTime eventStart = new DateTime(e.Date.Year, e.Date.Month, e.Date.Day,
+            e.StartTime.Hour, e.StartTime.Minute, e.StartTime.Second, DateTimeKind.Utc);
+        DateTime eventEnd = new DateTime(e.Date.Year, e.Date.Month, e.Date.Day,
+            e.EndTime.Hour, e.EndTime.Minute, e.EndTime.Second, DateTimeKind.Utc);
+
+        if ((e.Status == "draft" || e.Status == "pending") && e.RegistrationStart.HasValue && now >= e.RegistrationStart.Value)
+        {
+            e.Status = "published";
+            changed = true;
+        }
+
+        if (e.Status != "cancelled" && e.Status != "completed" && now >= eventEnd.AddHours(5))
+        {
+            e.Status = "completed";
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await _eventRepository.UpdateAsync(e);
+            await _eventRepository.SaveChangesAsync();
+        }
+        return changed;
+    }
     private EventListItemDto MapToListItemDto(Event e)
     {
         return new EventListItemDto
