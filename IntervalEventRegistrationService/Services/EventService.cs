@@ -130,7 +130,8 @@ public class EventService : IEventService
             CreatedAt = DateTime.UtcNow
         };
 
-        await _eventRepository.CreateAsync(eventEntity);
+        await _eventRepository.AddAsync(eventEntity);
+        await _eventRepository.SaveChangesAsync();
 
         var createdEvent = await _eventRepository.GetByIdAsync(eventEntity.EventId, includeRelations: true);
         var dto = MapToDetailDto(createdEvent!);
@@ -195,6 +196,7 @@ public class EventService : IEventService
         eventEntity.RegistrationEnd = request.RegistrationEnd;
 
         await _eventRepository.UpdateAsync(eventEntity);
+        await _eventRepository.SaveChangesAsync();
 
         var updatedEvent = await _eventRepository.GetByIdAsync(eventId, includeRelations: true);
         var dto = MapToDetailDto(updatedEvent!);
@@ -218,6 +220,7 @@ public class EventService : IEventService
         }
 
         var result = await _eventRepository.DeleteAsync(eventId);
+        await _eventRepository.SaveChangesAsync();
 
         if (!result)
         {

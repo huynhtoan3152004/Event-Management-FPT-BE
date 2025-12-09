@@ -19,5 +19,5 @@ public interface IHallService
     Task<ApiResponse<bool>> DeleteHallAsync(string hallId, string currentUserId, string currentUserRole);
     Task<ApiResponse<List<SeatDto>>> GetHallSeatsAsync(string hallId, string? seatType = null, bool? isActive = null);
     Task<ApiResponse<List<SeatDto>>> GenerateSeatsAsync(string hallId, GenerateSeatsRequestDto request, string currentUserId, string currentUserRole);
-    Task<ApiResponse<HallAvailabilityDto>> CheckAvailabilityAsync(string hallId, CheckAvailabilityRequestDto request);
+    Task<ApiResponse<HallAvailabilityDto>> CheckAvailabilityAsync(string hallId);
 }

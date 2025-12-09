@@ -4,16 +4,11 @@ public class HallAvailabilityDto
 {
     public string HallId { get; set; } = string.Empty;
     public string HallName { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
     public bool IsAvailable { get; set; }
-    public List<ConflictingEventDto> ConflictingEvents { get; set; } = new();
-    public string Message { get; set; } = string.Empty;
-}
-
-public class ConflictingEventDto
-{
-    public string EventId { get; set; } = string.Empty;
-    public string Title { get; set; } = string.Empty;
-    public DateOnly Date { get; set; }
-    public TimeOnly StartTime { get; set; }
-    public TimeOnly EndTime { get; set; }
+    public int TotalCapacity { get; set; }
+    public int TotalSeats { get; set; }
+    public int AvailableSeats { get; set; }
+    public int OccupiedSeats { get; set; }
+    public int ActiveEventsCount { get; set; }
 }

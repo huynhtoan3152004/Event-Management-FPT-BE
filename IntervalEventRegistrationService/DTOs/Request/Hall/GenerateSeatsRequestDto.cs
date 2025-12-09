@@ -4,17 +4,11 @@ namespace IntervalEventRegistrationService.DTOs.Request.Hall;
 
 public class GenerateSeatsRequestDto
 {
-    [Required]
-    [Range(1, 26, ErrorMessage = "Số hàng phải từ 1-26 (A-Z)")]
-    public int Rows { get; set; } // Số hàng ghế (A, B, C...)
+    [Required(ErrorMessage = "Số hàng ghế là bắt buộc")]
+    [Range(1, 50, ErrorMessage = "Số hàng phải từ 1-50")]
+    public int Rows { get; set; }
 
-    [Required]
+    [Required(ErrorMessage = "Số ghế mỗi hàng là bắt buộc")]
     [Range(1, 100, ErrorMessage = "Số ghế mỗi hàng phải từ 1-100")]
-    public int SeatsPerRow { get; set; } // Số ghế mỗi hàng (1, 2, 3...)
-
-    [StringLength(10)]
-    public string Prefix { get; set; } = ""; // Prefix cho seat code (optional: VIP-, REG-)
-
-    [RegularExpression("^(regular|vip|wheelchair)$")]
-    public string SeatType { get; set; } = "regular";
+    public int SeatsPerRow { get; set; }
 }

@@ -5,6 +5,7 @@ using IntervalEventRegistrationService.DTOs.Common;
 using IntervalEventRegistrationService.DTOs.Request.Hall;
 using IntervalEventRegistrationService.DTOs.Response.Hall;
 using IntervalEventRegistrationService.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace IntervalEventRegistrationService.Services;
 
@@ -12,11 +13,16 @@ public class HallService : IHallService
 {
     private readonly IHallRepository _hallRepository;
     private readonly ISeatRepository _seatRepository;
+    private readonly IEventRepository _eventRepository;
 
-    public HallService(IHallRepository hallRepository, ISeatRepository seatRepository)
+    public HallService(
+        IHallRepository hallRepository,
+        ISeatRepository seatRepository,
+        IEventRepository eventRepository)
     {
         _hallRepository = hallRepository;
         _seatRepository = seatRepository;
+        _eventRepository = eventRepository;
     }
 
     public async Task<PagedResponse<HallListItemDto>> GetAllHallsAsync(HallFilterRequest request)
@@ -32,7 +38,7 @@ public class HallService : IHallService
         var hallDtos = new List<HallListItemDto>();
         foreach (var hall in halls)
         {
-            var totalSeats = await _seatRepository.GetTotalSeatsCountAsync(hall.HallId);
+            var totalSeats = await _seatRepository.CountByHallIdAsync(hall.HallId);
             hallDtos.Add(new HallListItemDto
             {
                 HallId = hall.HallId,
@@ -62,7 +68,7 @@ public class HallService : IHallService
 
     public async Task<ApiResponse<HallDetailDto>> GetHallByIdAsync(string hallId)
     {
-        var hall = await _hallRepository.GetByIdAsync(hallId, includeRelations: true);
+        var hall = await _hallRepository.GetByIdAsync(hallId);
 
         if (hall == null)
         {
@@ -90,7 +96,7 @@ public class HallService : IHallService
 
         await _hallRepository.CreateAsync(hall);
 
-        var createdHall = await _hallRepository.GetByIdAsync(hall.HallId, includeRelations: true);
+        var createdHall = await _hallRepository.GetByIdAsync(hall.HallId);
         var dto = await MapToDetailDto(createdHall!);
 
         return ApiResponse<HallDetailDto>.SuccessResponse(dto, "Tạo hội trường thành công");
@@ -112,7 +118,7 @@ public class HallService : IHallService
         // Check if reducing capacity
         if (request.Capacity < hall.Capacity)
         {
-            var totalSeats = await _seatRepository.GetTotalSeatsCountAsync(hallId);
+            var totalSeats = await _seatRepository.CountByHallIdAsync(hallId);
             if (request.Capacity < totalSeats)
             {
                 return ApiResponse<HallDetailDto>.FailureResponse(
@@ -128,7 +134,7 @@ public class HallService : IHallService
 
         await _hallRepository.UpdateAsync(hall);
 
-        var updatedHall = await _hallRepository.GetByIdAsync(hallId, includeRelations: true);
+        var updatedHall = await _hallRepository.GetByIdAsync(hallId);
         var dto = await MapToDetailDto(updatedHall!);
 
         return ApiResponse<HallDetailDto>.SuccessResponse(dto, "Cập nhật hội trường thành công");
@@ -164,146 +170,208 @@ public class HallService : IHallService
     }
 
     public async Task<ApiResponse<List<SeatDto>>> GetHallSeatsAsync(
-        string hallId,
-        string? seatType = null,
+        string hallId, 
+        string? seatType = null, 
         bool? isActive = null)
     {
-        var hallExists = await _hallRepository.ExistsAsync(hallId);
-        if (!hallExists)
+        try
         {
-            return ApiResponse<List<SeatDto>>.FailureResponse("Không tìm thấy hội trường");
+            var hall = await _hallRepository.GetByIdAsync(hallId);
+            if (hall == null || hall.IsDeleted)
+            {
+                return ApiResponse<List<SeatDto>>.FailureResponse("Không tìm thấy hội trường");
+            }
+
+            var seats = await _seatRepository.GetByHallIdAsync(hallId);
+
+            // Filter by status if provided
+            if (!string.IsNullOrEmpty(seatType))
+            {
+                seats = seats.Where(s => s.Status == seatType).ToList();
+            }
+
+            var seatDtos = seats.Select(s => new SeatDto
+            {
+                SeatId = s.SeatId,
+                HallId = s.HallId,
+                SeatNumber = s.SeatNumber,
+                RowLabel = s.RowLabel,
+                Section = s.Section,
+                Status = s.Status
+            }).ToList();
+
+            return ApiResponse<List<SeatDto>>.SuccessResponse(
+                seatDtos,
+                $"Lấy danh sách {seatDtos.Count} ghế thành công"
+            );
         }
-
-        var seats = await _seatRepository.GetSeatsByHallIdAsync(hallId, seatType, isActive);
-
-        var seatDtos = seats.Select(s => new SeatDto
+        catch (Exception ex)
         {
-            SeatId = s.SeatId,
-            SeatCode = s.SeatNumber,
-            SeatRow = s.RowLabel,
-            SeatNumber = int.TryParse(s.SeatNumber, out var num) ? num : (int?)null,
-            SeatType = s.Section ?? "regular",
-            IsActive = !s.IsDeleted && s.Status == "available"
-        }).ToList();
-
-        return ApiResponse<List<SeatDto>>.SuccessResponse(
-            seatDtos,
-            $"Lấy danh sách {seatDtos.Count} ghế thành công");
+            return ApiResponse<List<SeatDto>>.FailureResponse(
+                "Lỗi khi lấy danh sách ghế",
+                new List<string> { ex.Message }
+            );
+        }
     }
 
+    /// <summary>
+    /// Generate seats automatically for a hall
+    /// </summary>
     public async Task<ApiResponse<List<SeatDto>>> GenerateSeatsAsync(
         string hallId,
         GenerateSeatsRequestDto request,
         string currentUserId,
         string currentUserRole)
     {
-        var hall = await _hallRepository.GetByIdAsync(hallId);
-
-        if (hall == null)
+        try
         {
-            return ApiResponse<List<SeatDto>>.FailureResponse("Không tìm thấy hội trường");
-        }
+            // 1. Validate Hall exists
+            var hall = await _hallRepository.GetByIdAsync(hallId);
+            if (hall == null || hall.IsDeleted)
+            {
+                return ApiResponse<List<SeatDto>>.FailureResponse("Không tìm thấy hội trường");
+            }
 
-        var totalSeats = request.Rows * request.SeatsPerRow;
-        if (totalSeats > hall.Capacity)
+            // 2. Check if seats already exist
+            var existingSeats = await _seatRepository.GetByHallIdAsync(hallId);
+            if (existingSeats.Any())
+            {
+                return ApiResponse<List<SeatDto>>.FailureResponse(
+                    $"Hội trường đã có {existingSeats.Count} ghế. Vui lòng xóa ghế cũ trước khi tạo mới"
+                );
+            }
+
+            // 3. Validate capacity
+            int totalSeats = request.Rows * request.SeatsPerRow;
+            if (totalSeats > hall.Capacity)
+            {
+                return ApiResponse<List<SeatDto>>.FailureResponse(
+                    $"Tổng số ghế ({totalSeats}) vượt quá sức chứa hội trường ({hall.Capacity})"
+                );
+            }
+
+            // 4. Generate seats
+            var seats = new List<Seat>();
+            var rowLabels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+            for (int row = 0; row < request.Rows; row++)
+            {
+                // Handle rows beyond Z (AA, AB, AC...)
+                string rowLabel = row < 26
+                    ? rowLabels[row].ToString()
+                    : $"{rowLabels[row / 26 - 1]}{rowLabels[row % 26]}";
+
+                for (int seatNum = 1; seatNum <= request.SeatsPerRow; seatNum++)
+                {
+                    var seat = new Seat
+                    {
+                        SeatId = Guid.NewGuid().ToString(),
+                        HallId = hallId,
+                        SeatNumber = $"{rowLabel}{seatNum}", // A1, A2, B1...
+                        RowLabel = rowLabel,                 // A, B, C...
+                        Section = "main",                    // Default: main section
+                        Status = "available",                // Default: available
+                        IsDeleted = false,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    seats.Add(seat);
+                }
+            }
+
+            // 5. Save to database
+            await _seatRepository.AddRangeAsync(seats);
+            await _seatRepository.SaveChangesAsync();
+
+            // 6. Map to DTO
+            var seatDtos = seats.Select(s => new SeatDto
+            {
+                SeatId = s.SeatId,
+                HallId = s.HallId,
+                SeatNumber = s.SeatNumber,
+                RowLabel = s.RowLabel,
+                Section = s.Section,
+                Status = s.Status
+            }).ToList();
+
+            return ApiResponse<List<SeatDto>>.SuccessResponse(
+                seatDtos,
+                $"Tạo thành công {totalSeats} ghế cho hội trường"
+            );
+        }
+        catch (Exception ex)
         {
             return ApiResponse<List<SeatDto>>.FailureResponse(
-                $"Tổng số ghế ({totalSeats}) vượt quá sức chứa ({hall.Capacity})");
+                "Lỗi khi tạo ghế tự động",
+                new List<string> { ex.Message }
+            );
         }
-
-        // Delete existing seats
-        await _seatRepository.DeleteSeatsByHallIdAsync(hallId);
-
-        // Generate new seats
-        var seats = new List<Seat>();
-        for (int row = 0; row < request.Rows; row++)
-        {
-            var rowLetter = ((char)('A' + row)).ToString();
-
-            for (int seatNum = 1; seatNum <= request.SeatsPerRow; seatNum++)
-            {
-                var seatCode = $"{request.Prefix}{rowLetter}{seatNum}";
-
-                seats.Add(new Seat
-                {
-                    SeatId = Guid.NewGuid().ToString(),
-                    HallId = hallId,
-                    SeatNumber = seatCode,
-                    RowLabel = rowLetter,
-                    Section = request.SeatType,
-                    Status = "available",
-                    IsDeleted = false,
-                    CreatedAt = DateTime.UtcNow
-                });
-            }
-        }
-
-        await _seatRepository.CreateBulkAsync(seats);
-
-        var seatDtos = seats.Select(s => new SeatDto
-        {
-            SeatId = s.SeatId,
-            SeatCode = s.SeatNumber,
-            SeatRow = s.RowLabel,
-            SeatNumber = int.TryParse(s.SeatNumber.Replace(request.Prefix, "").Substring(1), out var num) ? num : (int?)null,
-            SeatType = s.Section ?? "regular",
-            IsActive = !s.IsDeleted && s.Status == "available"
-        }).ToList();
-
-        return ApiResponse<List<SeatDto>>.SuccessResponse(
-            seatDtos,
-            $"Tạo thành công {seatDtos.Count} ghế");
     }
 
-    public async Task<ApiResponse<HallAvailabilityDto>> CheckAvailabilityAsync(
-        string hallId,
-        CheckAvailabilityRequestDto request)
+    /// <summary>
+    /// Check if hall is available (simplified - no date/time check)
+    /// </summary>
+    public async Task<ApiResponse<HallAvailabilityDto>> CheckAvailabilityAsync(string hallId)
     {
-        var hall = await _hallRepository.GetByIdAsync(hallId);
-
-        if (hall == null)
+        try
         {
-            return ApiResponse<HallAvailabilityDto>.FailureResponse("Không tìm thấy hội trường");
-        }
+            // 1. Validate Hall exists
+            var hall = await _hallRepository.GetByIdAsync(hallId);
+            if (hall == null || hall.IsDeleted)
+            {
+                return ApiResponse<HallAvailabilityDto>.FailureResponse("Không tìm thấy hội trường");
+            }
 
-        if (request.EndTime <= request.StartTime)
+            // 2. Check current status
+            bool isAvailable = hall.Status == "available" && hall.IsActive;
+
+            // 3. Count total seats
+            var totalSeats = await _seatRepository.CountByHallIdAsync(hallId);
+
+            // 4. Count available seats
+            var availableSeats = await _seatRepository.CountAvailableSeatsAsync(hallId);
+
+            // 5. Get active events using this hall (có thể null)
+            List<Event>? activeEvents = null;
+            try
+            {
+                activeEvents = await _eventRepository.GetActiveEventsByHallIdAsync(hallId);
+            }
+            catch
+            {
+                // Ignore if method not found
+            }
+
+            var dto = new HallAvailabilityDto
+            {
+                HallId = hall.HallId,
+                HallName = hall.Name,
+                Status = hall.Status,
+                IsAvailable = isAvailable,
+                TotalCapacity = hall.Capacity,
+                TotalSeats = totalSeats,
+                AvailableSeats = availableSeats,
+                OccupiedSeats = totalSeats - availableSeats,
+                ActiveEventsCount = activeEvents?.Count ?? 0
+            };
+
+            return ApiResponse<HallAvailabilityDto>.SuccessResponse(
+                dto,
+                isAvailable ? "Hội trường đang trống" : "Hội trường đang được sử dụng"
+            );
+        }
+        catch (Exception ex)
         {
             return ApiResponse<HallAvailabilityDto>.FailureResponse(
-                "Thời gian kết thúc phải sau thời gian bắt đầu");
+                "Lỗi khi kiểm tra tình trạng hội trường",
+                new List<string> { ex.Message }
+            );
         }
-
-        var conflictingEvents = await _hallRepository.GetConflictingEventsAsync(
-            hallId,
-            request.Date,
-            request.StartTime,
-            request.EndTime);
-
-        var isAvailable = !conflictingEvents.Any();
-
-        var dto = new HallAvailabilityDto
-        {
-            HallId = hallId,
-            HallName = hall.Name,
-            IsAvailable = isAvailable,
-            ConflictingEvents = conflictingEvents.Select(e => new ConflictingEventDto
-            {
-                EventId = e.EventId,
-                Title = e.Title,
-                Date = e.Date,
-                StartTime = e.StartTime,
-                EndTime = e.EndTime
-            }).ToList(),
-            Message = isAvailable
-                ? "Hội trường còn trống"
-                : $"Hội trường đã được đặt bởi {conflictingEvents.Count} sự kiện"
-        };
-
-        return ApiResponse<HallAvailabilityDto>.SuccessResponse(dto);
     }
 
     private async Task<HallDetailDto> MapToDetailDto(Hall hall)
     {
-        var totalSeats = await _seatRepository.GetTotalSeatsCountAsync(hall.HallId);
+        var totalSeats = await _seatRepository.CountByHallIdAsync(hall.HallId);
         var activeEventsCount = await _hallRepository.GetActiveEventsCountAsync(hall.HallId);
 
         FacilitiesDto? facilitiesParsed = null;
@@ -333,11 +401,11 @@ public class HallService : IHallService
             Seats = hall.Seats?.Select(s => new SeatDto
             {
                 SeatId = s.SeatId,
-                SeatCode = s.SeatNumber,
-                SeatRow = s.RowLabel,
-                SeatNumber = int.TryParse(s.SeatNumber, out var num) ? num : (int?)null,
-                SeatType = s.Section ?? "regular",
-                IsActive = !s.IsDeleted && s.Status == "available"
+                HallId = s.HallId,
+                SeatNumber = s.SeatNumber,
+                RowLabel = s.RowLabel,
+                Section = s.Section,
+                Status = s.Status
             }).ToList() ?? new List<SeatDto>(),
             ActiveEventsCount = activeEventsCount,
             UpdatedAt = hall.UpdatedAt

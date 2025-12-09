@@ -1,7 +1,7 @@
-using Microsoft.EntityFrameworkCore;
 using IntervalEventRegistrationRepo.Data;
 using IntervalEventRegistrationRepo.Entities;
 using IntervalEventRegistrationRepo.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace IntervalEventRegistrationRepo.Repository;
 
@@ -12,6 +12,21 @@ public class EventRepository : IEventRepository
     public EventRepository(ApplicationDbContext context)
     {
         _context = context;
+    }
+
+    public async Task<Event?> GetByIdAsync(string eventId, bool includeRelations = false)
+    {
+        var query = _context.Events.AsQueryable();
+
+        if (includeRelations)
+        {
+            query = query
+                .Include(e => e.Hall)
+                .Include(e => e.EventSpeakers)
+                    .ThenInclude(es => es.Speaker);
+        }
+
+        return await query.FirstOrDefaultAsync(e => e.EventId == eventId && !e.IsDeleted);
     }
 
     public async Task<(IEnumerable<Event> Events, int TotalCount)> GetAllAsync(
@@ -25,29 +40,23 @@ public class EventRepository : IEventRepository
         string? organizerId = null)
     {
         var query = _context.Events
-            .Where(e => !e.IsDeleted)
             .Include(e => e.Hall)
-            .Include(e => e.Organizer)
+            .Where(e => !e.IsDeleted)
             .AsQueryable();
 
-        // Search filter
+        // Apply filters
         if (!string.IsNullOrWhiteSpace(search))
         {
-            search = search.ToLower();
-            query = query.Where(e =>
-                e.Title.ToLower().Contains(search) ||
-                (e.Description != null && e.Description.ToLower().Contains(search)) ||
-                (e.ClubName != null && e.ClubName.ToLower().Contains(search)) ||
-                (e.Location != null && e.Location.ToLower().Contains(search)));
+            query = query.Where(e => 
+                e.Title.Contains(search) || 
+                (e.Description != null && e.Description.Contains(search)));
         }
 
-        // Status filter
         if (!string.IsNullOrWhiteSpace(status))
         {
-            query = query.Where(e => e.Status == status.ToLower());
+            query = query.Where(e => e.Status == status);
         }
 
-        // Date range filter
         if (dateFrom.HasValue)
         {
             query = query.Where(e => e.Date >= dateFrom.Value);
@@ -58,13 +67,11 @@ public class EventRepository : IEventRepository
             query = query.Where(e => e.Date <= dateTo.Value);
         }
 
-        // Hall filter
         if (!string.IsNullOrWhiteSpace(hallId))
         {
             query = query.Where(e => e.HallId == hallId);
         }
 
-        // Organizer filter
         if (!string.IsNullOrWhiteSpace(organizerId))
         {
             query = query.Where(e => e.OrganizerId == organizerId);
@@ -73,8 +80,7 @@ public class EventRepository : IEventRepository
         var totalCount = await query.CountAsync();
 
         var events = await query
-            .OrderByDescending(e => e.Date)
-            .ThenBy(e => e.StartTime)
+            .OrderByDescending(e => e.CreatedAt)
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync();
@@ -82,59 +88,68 @@ public class EventRepository : IEventRepository
         return (events, totalCount);
     }
 
-    public async Task<Event?> GetByIdAsync(string eventId, bool includeRelations = false)
+    public async Task<List<Event>> GetActiveEventsAsync()
     {
-        var query = _context.Events.Where(e => !e.IsDeleted);
-
-        if (includeRelations)
-        {
-            query = query
-                .Include(e => e.Hall)
-                .Include(e => e.Organizer)
-                .Include(e => e.EventSpeakers)
-                    .ThenInclude(es => es.Speaker);
-        }
-
-        return await query.FirstOrDefaultAsync(e => e.EventId == eventId);
+        var now = DateTime.UtcNow;
+        return await _context.Events
+            .Include(e => e.Hall)
+            .Where(e => !e.IsDeleted 
+                && e.Status == "published"
+                && e.Date >= DateOnly.FromDateTime(now))
+            .OrderBy(e => e.Date)
+            .ThenBy(e => e.StartTime)
+            .ToListAsync();
     }
 
-    public async Task<Event> CreateAsync(Event eventEntity)
+    public async Task<List<Event>> GetActiveEventsByHallIdAsync(string hallId)
     {
-        await _context.Events.AddAsync(eventEntity);
-        await _context.SaveChangesAsync();
-        return eventEntity;
+        var now = DateTime.UtcNow;
+        return await _context.Events
+            .Where(e => e.HallId == hallId
+                && !e.IsDeleted
+                && e.Status == "published"
+                && e.Date >= DateOnly.FromDateTime(now))
+            .OrderBy(e => e.Date)
+            .ThenBy(e => e.StartTime)
+            .ToListAsync();
     }
 
-    public async Task<Event> UpdateAsync(Event eventEntity)
+    public async Task AddAsync(Event @event)
     {
-        eventEntity.UpdatedAt = DateTime.UtcNow;
-        _context.Events.Update(eventEntity);
-        await _context.SaveChangesAsync();
-        return eventEntity;
+        await _context.Events.AddAsync(@event);
+    }
+
+    public async Task<Event> UpdateAsync(Event @event)
+    {
+        @event.UpdatedAt = DateTime.UtcNow;
+        _context.Events.Update(@event);
+        return @event;
     }
 
     public async Task<bool> DeleteAsync(string eventId)
     {
-        var eventEntity = await GetByIdAsync(eventId);
-        if (eventEntity == null)
-            return false;
-
-        eventEntity.IsDeleted = true;
-        eventEntity.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
-        return true;
+        var @event = await GetByIdAsync(eventId);
+        if (@event != null)
+        {
+            @event.IsDeleted = true;
+            @event.UpdatedAt = DateTime.UtcNow;
+            _context.Events.Update(@event);
+            return true;
+        }
+        return false;
     }
 
     public async Task<bool> ExistsAsync(string eventId)
     {
-        return await _context.Events.AnyAsync(e => e.EventId == eventId && !e.IsDeleted);
+        return await _context.Events
+            .AnyAsync(e => e.EventId == eventId && !e.IsDeleted);
     }
 
     public async Task<int> GetRegisteredCountAsync(string eventId)
     {
-        return await _context.Tickets
-            .Where(t => t.EventId == eventId && t.Status == "active")
-            .CountAsync();
+        var @event = await _context.Events
+            .FirstOrDefaultAsync(e => e.EventId == eventId && !e.IsDeleted);
+        return @event?.RegisteredCount ?? 0;
     }
 
     public async Task SaveChangesAsync()

@@ -1,7 +1,7 @@
-using Microsoft.EntityFrameworkCore;
 using IntervalEventRegistrationRepo.Data;
 using IntervalEventRegistrationRepo.Entities;
 using IntervalEventRegistrationRepo.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace IntervalEventRegistrationRepo.Repository;
 
@@ -14,53 +14,65 @@ public class SeatRepository : ISeatRepository
         _context = context;
     }
 
-    public async Task<List<Seat>> GetSeatsByHallIdAsync(string hallId, string? seatType = null, bool? isActive = null)
+    public async Task<Seat?> GetByIdAsync(string seatId)
     {
-        var query = _context.Seats
-            .Where(s => s.HallId == hallId)
-            .AsQueryable();
+        return await _context.Seats
+            .Include(s => s.Hall)
+            .FirstOrDefaultAsync(s => s.SeatId == seatId && !s.IsDeleted);
+    }
 
-        if (!string.IsNullOrWhiteSpace(seatType))
-        {
-            query = query.Where(s => s.Section == seatType.ToLower());
-        }
-
-        if (isActive.HasValue)
-        {
-            if (isActive.Value)
-                query = query.Where(s => !s.IsDeleted && s.Status == "available");
-            else
-                query = query.Where(s => s.IsDeleted || s.Status != "available");
-        }
-
-        return await query
+    public async Task<List<Seat>> GetByHallIdAsync(string hallId)
+    {
+        return await _context.Seats
+            .Where(s => s.HallId == hallId && !s.IsDeleted)
             .OrderBy(s => s.RowLabel)
             .ThenBy(s => s.SeatNumber)
             .ToListAsync();
     }
 
-    public async Task<Seat?> GetByIdAsync(string seatId)
+    public async Task<int> CountByHallIdAsync(string hallId)
     {
-        return await _context.Seats.FindAsync(seatId);
+        return await _context.Seats
+            .CountAsync(s => s.HallId == hallId && !s.IsDeleted);
     }
 
-    public async Task<List<Seat>> CreateBulkAsync(List<Seat> seats)
+    public async Task<int> CountAvailableSeatsAsync(string hallId)
+    {
+        return await _context.Seats
+            .CountAsync(s => s.HallId == hallId 
+                && !s.IsDeleted 
+                && s.Status == "available");
+    }
+
+    public async Task AddAsync(Seat seat)
+    {
+        await _context.Seats.AddAsync(seat);
+    }
+
+    public async Task AddRangeAsync(List<Seat> seats)
     {
         await _context.Seats.AddRangeAsync(seats);
-        await _context.SaveChangesAsync();
-        return seats;
     }
 
-    public async Task<bool> DeleteSeatsByHallIdAsync(string hallId)
+    public async Task UpdateAsync(Seat seat)
     {
-        var seats = await _context.Seats.Where(s => s.HallId == hallId).ToListAsync();
-        _context.Seats.RemoveRange(seats);
-        await _context.SaveChangesAsync();
-        return true;
+        seat.UpdatedAt = DateTime.UtcNow;
+        _context.Seats.Update(seat);
     }
 
-    public async Task<int> GetTotalSeatsCountAsync(string hallId)
+    public async Task DeleteAsync(string seatId)
     {
-        return await _context.Seats.CountAsync(s => s.HallId == hallId && !s.IsDeleted && s.Status == "available");
+        var seat = await GetByIdAsync(seatId);
+        if (seat != null)
+        {
+            seat.IsDeleted = true;
+            seat.UpdatedAt = DateTime.UtcNow;
+            await UpdateAsync(seat);
+        }
+    }
+
+    public async Task SaveChangesAsync()
+    {
+        await _context.SaveChangesAsync();
     }
 }

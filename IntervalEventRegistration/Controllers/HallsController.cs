@@ -64,15 +64,15 @@ public class HallsController : ControllerBase
             return BadRequest(ApiResponse<HallDetailDto>.FailureResponse("Dữ liệu không hợp lệ", errors));
         }
 
-        var organizerId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-        var result = await _hallService.CreateHallAsync(request, organizerId);
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var result = await _hallService.CreateHallAsync(request, userId);
 
         if (!result.Success)
         {
             return BadRequest(result);
         }
 
-        return CreatedAtAction(nameof(GetHallById), new { id = result.Data!.HallId }, result);
+        return CreatedAtAction(nameof(GetHallById), new { id = result.Data?.HallId }, result);
     }
 
     /// <summary>
@@ -131,15 +131,15 @@ public class HallsController : ControllerBase
     [HttpGet("{id}/seats")]
     [AllowAnonymous]
     public async Task<IActionResult> GetHallSeats(
-        string id,
-        [FromQuery] string? seatType = null,
+        string id, 
+        [FromQuery] string? seatType = null, 
         [FromQuery] bool? isActive = null)
     {
         var result = await _hallService.GetHallSeatsAsync(id, seatType, isActive);
 
         if (!result.Success)
         {
-            return NotFound(result);
+            return BadRequest(result);
         }
 
         return Ok(result);
@@ -176,23 +176,13 @@ public class HallsController : ControllerBase
     }
 
     /// <summary>
-    /// Kiểm tra hội trường có trống không
+    /// Kiểm tra hội trường có trống không (Chỉ cần HallId)
     /// </summary>
-    [HttpPost("{id}/availability")]
+    [HttpGet("{id}/availability")]
     [AllowAnonymous]
-    public async Task<IActionResult> CheckAvailability(string id, [FromBody] CheckAvailabilityRequestDto request)
+    public async Task<IActionResult> CheckAvailability(string id)
     {
-        if (!ModelState.IsValid)
-        {
-            var errors = ModelState.Values
-                .SelectMany(v => v.Errors)
-                .Select(e => e.ErrorMessage)
-                .ToList();
-
-            return BadRequest(ApiResponse<HallAvailabilityDto>.FailureResponse("Dữ liệu không hợp lệ", errors));
-        }
-
-        var result = await _hallService.CheckAvailabilityAsync(id, request);
+        var result = await _hallService.CheckAvailabilityAsync(id);
 
         if (!result.Success)
         {
