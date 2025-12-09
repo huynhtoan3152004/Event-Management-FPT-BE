@@ -147,10 +147,11 @@ namespace IntervalEventRegistration.Controllers
             }
         }
 
+        // POST: api/auth/register
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterRequestDto request)
         {
-            // 1. Validate ModelState (bao gồm check Required, ConfirmPassword, Role Regex...)
+            // Kiểm tra tính hợp lệ của dữ liệu (Confirm password, email format...)
             if (!ModelState.IsValid)
             {
                 var errors = ModelState.Values
@@ -163,11 +164,10 @@ namespace IntervalEventRegistration.Controllers
 
             try
             {
-                // 2. Gọi Service để tạo tài khoản
                 await _authService.RegisterAsync(request);
 
-                // 3. Trả về thông báo thành công (Data = null vì không cần trả Token)
-                return Ok(ApiResponse<object?>.SuccessResponse(null, "Đăng ký thành công. Vui lòng đăng nhập để tiếp tục."));
+                // Trả về thành công, không kèm Token
+                return Ok(ApiResponse<object>.SuccessResponse(null, "Đăng ký thành công. Vui lòng đăng nhập để tiếp tục."));
             }
             catch (ArgumentException ex) // Bắt lỗi nghiệp vụ (ví dụ: trùng email)
             {

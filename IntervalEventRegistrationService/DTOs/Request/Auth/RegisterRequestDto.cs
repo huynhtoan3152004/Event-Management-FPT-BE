@@ -29,12 +29,5 @@ namespace IntervalEventRegistrationService.DTOs.Request.Auth
         [Phone(ErrorMessage = "Định dạng số điện thoại không hợp lệ")]
         [StringLength(15, ErrorMessage = "Số điện thoại không được vượt quá 15 ký tự")]
         public string Phone { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Role bắt buộc: chỉ chấp nhận "staff" hoặc "organizer"
-        /// </summary>
-        [Required(ErrorMessage = "Vai trò là bắt buộc")]
-        [RegularExpression("staff|organizer", ErrorMessage = "Vai trò chỉ được là 'staff' hoặc 'organizer'")]
-        public string RoleId { get; set; } = string.Empty;
     }
 }

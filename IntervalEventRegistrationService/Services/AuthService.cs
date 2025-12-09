@@ -351,13 +351,10 @@ namespace IntervalEventRegistrationService.Services
                 throw new ArgumentException("Email này đã được sử dụng.");
             }
 
-            // 2. Hash mật khẩu bằng BCrypt
+            // 2. Hash mật khẩu
             string passwordHash = BCryptNet.HashPassword(request.Password);
 
-            // 3. Chuẩn hóa Role (đưa về chữ thường để khớp với Database Seed Data)
-            string normalizedRole = request.RoleId.ToLower().Trim();
-
-            // 4. Tạo Entity User
+            // 3. Tạo Entity User mới
             var newUser = new User
             {
                 UserId = Guid.NewGuid().ToString(),
@@ -365,22 +362,26 @@ namespace IntervalEventRegistrationService.Services
                 Email = request.Email,
                 Phone = request.Phone,
                 PasswordHash = passwordHash,
-                RoleId = normalizedRole,
 
-               
-               
-                // Các trạng thái mặc định
+                // Set cứng Role là Student
+                RoleId = DefaultStudentRoleId,
+
+                // Các thông tin khác
                 Status = "active",
                 EmailVerified = false,
                 CreatedAt = DateTime.UtcNow,
-                IsDeleted = false
+                IsDeleted = false,
+
+                // Student không cần thông tin tổ chức/phòng ban
+                Organization = null,
+                Department = null
             };
 
-            // 5. Lưu xuống Database
+            // 4. Lưu xuống Database
             await _userRepository.AddAsync(newUser);
             await _userRepository.SaveChangesAsync();
 
-            // KHÔNG sinh Token ở đây nữa. Kết thúc hàm.
+            // Kết thúc, không sinh Token
         }
     }
 }
