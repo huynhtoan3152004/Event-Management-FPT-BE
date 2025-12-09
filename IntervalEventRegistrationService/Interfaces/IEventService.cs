@@ -1,6 +1,7 @@
 using IntervalEventRegistrationService.DTOs.Common;
 using IntervalEventRegistrationService.DTOs.Request;
-using IntervalEventRegistrationService.DTOs.Response; 
+using IntervalEventRegistrationService.DTOs.Response;
+using IntervalEventRegistrationService.DTOs.Response.Hall;
 
 namespace IntervalEventRegistrationService.Interfaces
 {
@@ -51,5 +52,7 @@ namespace IntervalEventRegistrationService.Interfaces
             string eventId,
             string currentUserId,
             string currentUserRole);
+
+        Task<ApiResponse<List<SeatDto>>> GetEventAvailableSeatsAsync(string eventId);
     }
 }

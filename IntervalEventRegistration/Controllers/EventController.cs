@@ -53,6 +53,18 @@ public class EventsController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("{id}/seats")]
+    [Authorize]
+    public async Task<IActionResult> GetEventSeats(string id)
+    {
+        var result = await _eventService.GetEventAvailableSeatsAsync(id);
+        if (!result.Success)
+        {
+            return BadRequest(result);
+        }
+        return Ok(result);
+    }
+
     /// <summary>
     /// Tạo sự kiện mới (Chỉ Organizer)
     /// </summary>

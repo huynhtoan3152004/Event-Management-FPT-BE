@@ -36,6 +36,14 @@ public class CreateEventRequest
     [Range(1, int.MaxValue, ErrorMessage = "Số ghế phải lớn hơn 0")]
     public int TotalSeats { get; set; }
 
+    [Required(ErrorMessage = "Số hàng là bắt buộc")]
+    [Range(1, int.MaxValue, ErrorMessage = "Số hàng phải lớn hơn 0")]
+    public int Rows { get; set; }
+
+    [Required(ErrorMessage = "Số ghế mỗi hàng là bắt buộc")]
+    [Range(1, int.MaxValue, ErrorMessage = "Số ghế mỗi hàng phải lớn hơn 0")]
+    public int SeatsPerRow { get; set; }
+
     public DateTime? RegistrationStart { get; set; }
 
     public DateTime? RegistrationEnd { get; set; }
@@ -81,6 +89,12 @@ public class UpdateEventRequest
     [Required(ErrorMessage = "Tổng số ghế là bắt buộc")]
     [Range(1, int.MaxValue, ErrorMessage = "Số ghế phải lớn hơn 0")]
     public int TotalSeats { get; set; }
+
+    [Range(0, int.MaxValue, ErrorMessage = "Số hàng không hợp lệ")]
+    public int Rows { get; set; } = 0;
+
+    [Range(0, int.MaxValue, ErrorMessage = "Số ghế mỗi hàng không hợp lệ")]
+    public int SeatsPerRow { get; set; } = 0;
 
     public DateTime? RegistrationStart { get; set; }
 
