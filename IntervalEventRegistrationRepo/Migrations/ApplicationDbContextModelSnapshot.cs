@@ -53,7 +53,7 @@ namespace IntervalEventRegistrationRepo.Migrations
                     b.HasIndex("ProviderName")
                         .IsUnique();
 
-                    b.ToTable("auth_providers");
+                    b.ToTable("auth_providers", (string)null);
 
                     b.HasData(
                         new
@@ -197,7 +197,7 @@ namespace IntervalEventRegistrationRepo.Migrations
 
                     b.HasIndex("OrganizerId");
 
-                    b.ToTable("events");
+                    b.ToTable("events", (string)null);
                 });
 
             modelBuilder.Entity("IntervalEventRegistrationRepo.Entities.EventSpeaker", b =>
@@ -229,7 +229,7 @@ namespace IntervalEventRegistrationRepo.Migrations
 
                     b.HasIndex("SpeakerId");
 
-                    b.ToTable("event_speakers");
+                    b.ToTable("event_speakers", (string)null);
                 });
 
             modelBuilder.Entity("IntervalEventRegistrationRepo.Entities.EventStaff", b =>
@@ -257,7 +257,7 @@ namespace IntervalEventRegistrationRepo.Migrations
 
                     b.HasIndex("StaffId");
 
-                    b.ToTable("event_staff");
+                    b.ToTable("event_staff", (string)null);
                 });
 
             modelBuilder.Entity("IntervalEventRegistrationRepo.Entities.Hall", b =>
@@ -319,7 +319,7 @@ namespace IntervalEventRegistrationRepo.Migrations
 
                     b.HasKey("HallId");
 
-                    b.ToTable("halls");
+                    b.ToTable("halls", (string)null);
                 });
 
             modelBuilder.Entity("IntervalEventRegistrationRepo.Entities.Role", b =>
@@ -357,7 +357,7 @@ namespace IntervalEventRegistrationRepo.Migrations
                     b.HasIndex("RoleName")
                         .IsUnique();
 
-                    b.ToTable("roles");
+                    b.ToTable("roles", (string)null);
 
                     b.HasData(
                         new
@@ -445,7 +445,7 @@ namespace IntervalEventRegistrationRepo.Migrations
 
                     b.HasIndex("HallId");
 
-                    b.ToTable("seats");
+                    b.ToTable("seats", (string)null);
                 });
 
             modelBuilder.Entity("IntervalEventRegistrationRepo.Entities.Speaker", b =>
@@ -509,7 +509,7 @@ namespace IntervalEventRegistrationRepo.Migrations
 
                     b.HasKey("SpeakerId");
 
-                    b.ToTable("speakers");
+                    b.ToTable("speakers", (string)null);
                 });
 
             modelBuilder.Entity("IntervalEventRegistrationRepo.Entities.Ticket", b =>
@@ -591,7 +591,7 @@ namespace IntervalEventRegistrationRepo.Migrations
                     b.HasIndex("TicketCode")
                         .IsUnique();
 
-                    b.ToTable("tickets");
+                    b.ToTable("tickets", (string)null);
                 });
 
             modelBuilder.Entity("IntervalEventRegistrationRepo.Entities.TicketCheckin", b =>
@@ -633,7 +633,7 @@ namespace IntervalEventRegistrationRepo.Migrations
 
                     b.HasIndex("TicketId");
 
-                    b.ToTable("ticket_checkins");
+                    b.ToTable("ticket_checkins", (string)null);
                 });
 
             modelBuilder.Entity("IntervalEventRegistrationRepo.Entities.User", b =>
@@ -727,7 +727,7 @@ namespace IntervalEventRegistrationRepo.Migrations
                         .IsUnique()
                         .HasFilter("student_code IS NOT NULL");
 
-                    b.ToTable("users");
+                    b.ToTable("users", (string)null);
                 });
 
             modelBuilder.Entity("IntervalEventRegistrationRepo.Entities.UserAuthProvider", b =>
@@ -801,7 +801,7 @@ namespace IntervalEventRegistrationRepo.Migrations
                     b.HasIndex("ProviderId", "ProviderUserId")
                         .IsUnique();
 
-                    b.ToTable("user_auth_providers");
+                    b.ToTable("user_auth_providers", (string)null);
                 });
 
             modelBuilder.Entity("IntervalEventRegistrationRepo.Entities.Event", b =>

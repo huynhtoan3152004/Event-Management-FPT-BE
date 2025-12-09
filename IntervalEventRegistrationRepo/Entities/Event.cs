@@ -95,6 +95,12 @@ public class Event
     [Column("updated_at")]
     public DateTime? UpdatedAt { get; set; }
 
+    [Column("number_of_rows")]
+    public int NumberOfRows { get; set; }
+
+    [Column("seats_per_row")]
+    public int SeatsPerRow { get; set; }
+
     // Navigation properties
     [ForeignKey("HallId")]
     public virtual Hall? Hall { get; set; }
@@ -105,4 +111,5 @@ public class Event
     public virtual ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
     public virtual ICollection<EventStaff> EventStaffs { get; set; } = new List<EventStaff>();
     public virtual ICollection<EventSpeaker> EventSpeakers { get; set; } = new List<EventSpeaker>();
+    public virtual ICollection<Seat> Seats { get; set; } = new List<Seat>();
 }

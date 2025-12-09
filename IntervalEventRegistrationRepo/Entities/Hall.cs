@@ -48,6 +48,12 @@ public class Hall
     [Column("updated_at")]
     public DateTime? UpdatedAt { get; set; }
 
+    [Column("max_rows")]
+    public int MaxRows { get; set; }
+
+    [Column("max_seats_per_row")]
+    public int MaxSeatsPerRow { get; set; }
+
     // Navigation properties
     public virtual ICollection<Event> Events { get; set; } = new List<Event>();
     public virtual ICollection<Seat> Seats { get; set; } = new List<Seat>();

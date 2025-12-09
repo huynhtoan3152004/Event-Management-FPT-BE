@@ -15,6 +15,10 @@ public class Seat
     [StringLength(50)]
     public string HallId { get; set; } = string.Empty;
 
+    [Column("event_id")]
+    [StringLength(50)]
+    public string? EventId { get; set; }
+
     [Column("seat_number")]
     [StringLength(10)]
     public string SeatNumber { get; set; } = string.Empty;
@@ -43,6 +47,9 @@ public class Seat
     // Navigation properties
     [ForeignKey("HallId")]
     public virtual Hall? Hall { get; set; }
+
+    [ForeignKey("EventId")]
+    public virtual Event? Event { get; set; }
 
     public virtual ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
 }
