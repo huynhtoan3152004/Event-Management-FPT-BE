@@ -208,6 +208,23 @@ public class EventService : IEventService
         await _eventRepository.AddAsync(eventEntity);
         await _eventRepository.SaveChangesAsync();
 
+        // Add Speakers if provided
+        if (request.SpeakerIds != null && request.SpeakerIds.Any())
+        {
+            foreach (var speakerId in request.SpeakerIds)
+            {
+                var eventSpeaker = new EventSpeaker
+                {
+                    EventId = eventEntity.EventId,
+                    SpeakerId = speakerId,
+                    DisplayOrder = request.SpeakerIds.IndexOf(speakerId),
+                    CreatedAt = DateTime.UtcNow
+                };
+                eventEntity.EventSpeakers.Add(eventSpeaker);
+            }
+            await _eventRepository.SaveChangesAsync();
+        }
+
         // Generate seats for the event
         if (!string.IsNullOrWhiteSpace(request.HallId))
         {
@@ -564,7 +581,15 @@ public class EventService : IEventService
             ApprovedBy = e.ApprovedBy,
             ApprovedAt = e.ApprovedAt,
             RejectionReason = e.RejectionReason,
-            UpdatedAt = e.UpdatedAt
+            UpdatedAt = e.UpdatedAt,
+            Speakers = e.EventSpeakers?.Select(es => new SpeakerSimpleDto
+            {
+                SpeakerId = es.Speaker?.SpeakerId ?? string.Empty,
+                Name = es.Speaker?.Name ?? string.Empty,
+                Title = es.Speaker?.Title,
+                Organization = es.Speaker?.Company,
+                ImageUrl = es.Speaker?.AvatarUrl
+            }).ToList()
         };
     }
 

@@ -34,4 +34,14 @@ public class EventDetailDto : EventListItemDto
     public DateTime? ApprovedAt { get; set; }
     public string? RejectionReason { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public List<SpeakerSimpleDto>? Speakers { get; set; }
+}
+
+public class SpeakerSimpleDto
+{
+    public string SpeakerId { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string? Title { get; set; }
+    public string? Organization { get; set; }
+    public string? ImageUrl { get; set; }
 }

@@ -87,6 +87,8 @@ public class HallService : IHallService
             Name = request.Name,
             Address = request.Location,
             Capacity = request.Capacity,
+            MaxRows = request.MaxRows > 0 ? request.MaxRows : 20,
+            MaxSeatsPerRow = request.MaxSeatsPerRow > 0 ? request.MaxSeatsPerRow : 20,
             Facilities = request.Facilities,
             Status = "active",
             IsActive = true,
@@ -265,8 +267,12 @@ public class HallService : IHallService
                 );
             }
 
-            // 3. Validate capacity
-            int totalSeats = request.Rows * request.SeatsPerRow;
+            // 3. Use Hall's max configuration if not provided
+            int rows = request.Rows > 0 ? request.Rows : hall.MaxRows;
+            int seatsPerRow = request.SeatsPerRow > 0 ? request.SeatsPerRow : hall.MaxSeatsPerRow;
+            int totalSeats = rows * seatsPerRow;
+
+            // Validate capacity
             if (totalSeats > hall.Capacity)
             {
                 return ApiResponse<List<SeatDto>>.FailureResponse(
@@ -278,14 +284,14 @@ public class HallService : IHallService
             var seats = new List<Seat>();
             var rowLabels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-            for (int row = 0; row < request.Rows; row++)
+            for (int row = 0; row < rows; row++)
             {
                 // Handle rows beyond Z (AA, AB, AC...)
                 string rowLabel = row < 26
                     ? rowLabels[row].ToString()
                     : $"{rowLabels[row / 26 - 1]}{rowLabels[row % 26]}";
 
-                for (int seatNum = 1; seatNum <= request.SeatsPerRow; seatNum++)
+                for (int seatNum = 1; seatNum <= seatsPerRow; seatNum++)
                 {
                     var seat = new Seat
                     {
