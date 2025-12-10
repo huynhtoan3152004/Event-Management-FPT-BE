@@ -8,12 +8,13 @@ using IntervalEventRegistrationService.Configuration;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.HttpOverrides;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ==================================================================
-// 0. CONFIGURATION LOADING (Load local config files if exist)
+// 0. CONFIGURATION LOADING
 // ==================================================================
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
@@ -22,23 +23,14 @@ builder.Configuration
     .AddEnvironmentVariables();
 
 // ==================================================================
-// 1. CONFIGURATION BINDING (Đọc cấu hình từ appsettings.json)
+// 1. CONFIGURATION BINDING
 // ==================================================================
-
-// Cloudinary
-builder.Services.Configure<CloudinarySettings>(
-    builder.Configuration.GetSection("Cloudinary"));
-
-// Google Auth
-builder.Services.Configure<GoogleAuthSettings>(
-    builder.Configuration.GetSection("GoogleAuth"));
-
-// JWT Settings
-builder.Services.Configure<JwtSettings>(
-    builder.Configuration.GetSection("Jwt"));
+builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
+builder.Services.Configure<GoogleAuthSettings>(builder.Configuration.GetSection("GoogleAuth"));
+builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
 
 // ==================================================================
-// 2. DATABASE CONFIGURATION (PostgreSQL)
+// 2. DATABASE CONFIGURATION
 // ==================================================================
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnectionStringDB");
 if (string.IsNullOrEmpty(connectionString))
@@ -48,21 +40,18 @@ if (string.IsNullOrEmpty(connectionString))
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
-    options.UseNpgsql(connectionString,
-        npgsqlOptions =>
-        {
-            npgsqlOptions.EnableRetryOnFailure(
-                maxRetryCount: 3,
-                maxRetryDelay: TimeSpan.FromSeconds(30),
-                errorCodesToAdd: null);
-        });
+    options.UseNpgsql(connectionString, npgsqlOptions =>
+    {
+        npgsqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(30),
+            errorCodesToAdd: null);
+    });
 });
 
 // ==================================================================
-// 3. DI CONTAINER REGISTRATION (Đăng ký Service & Repo)
+// 3. DI CONTAINER REGISTRATION
 // ==================================================================
-
-// --- Repositories ---
 builder.Services.AddScoped<ISpeakerRepository, SpeakerRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IUserAuthProviderRepository, UserAuthProviderRepository>();
@@ -72,7 +61,6 @@ builder.Services.AddScoped<ISeatRepository, SeatRepository>();
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<ITicketCheckinRepository, TicketCheckinRepository>();
 
-// --- Services ---
 builder.Services.AddScoped<ICloudinaryService, CloudinaryService>();
 builder.Services.AddScoped<ISpeakerService, SpeakerService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -84,16 +72,14 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddControllers();
 
 // ==================================================================
-// 4. JWT AUTHENTICATION CONFIGURATION
+// 4. JWT AUTHENTICATION
 // ==================================================================
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtSettings = jwtSection.Get<JwtSettings>();
 
-// Kiểm tra null để tránh crash nếu quên cấu hình
 if (jwtSettings == null || string.IsNullOrEmpty(jwtSettings.SecretKey))
 {
     Console.WriteLine("❌ ERROR: JWT Settings are missing or invalid!");
-    Console.WriteLine("Please check appsettings.json or Environment Variables.");
     throw new InvalidOperationException("JWT Settings are missing or invalid in appsettings.json");
 }
 
@@ -109,22 +95,17 @@ builder.Services
         {
             ValidateIssuer = true,
             ValidIssuer = jwtSettings.Issuer,
-
             ValidateAudience = true,
             ValidAudience = jwtSettings.Audience,
-
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(jwtSettings.SecretKey)
-            ),
-
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(2)
         };
     });
 
 // ==================================================================
-// 5. SWAGGER CONFIGURATION (Hỗ trợ Bearer Token)
+// 5. SWAGGER CONFIGURATION
 // ==================================================================
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -135,7 +116,6 @@ builder.Services.AddSwaggerGen(c =>
         Version = "v1"
     });
 
-    // Định nghĩa nút "Authorize" nhập Bearer Token
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Description = "Nhập JWT theo dạng: Bearer {token}",
@@ -163,74 +143,67 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // ==================================================================
-// 6. ✅ CORS CONFIGURATION (Đọc từ Environment Variable)
+// 6. CORS CONFIGURATION (SUPPORT ALLOW ALL FLAG)
 // ==================================================================
 
-// Đọc CORS từ environment variable hoặc appsettings.json
-var corsOriginsConfig = builder.Configuration["CORS:AllowedOrigins"];
-var allowedOrigins = new List<string>
-{
-    "http://localhost:3000",  // Default local dev
-    "http://localhost:3001"   // Default local dev alternate port
-};
+// Check if AllowAll is enabled
+var allowAll = builder.Configuration.GetValue<bool>("CORS:AllowAll", false);
 
-// Parse từ environment variable (format: url1,url2,url3)
-if (!string.IsNullOrEmpty(corsOriginsConfig))
+if (allowAll)
 {
-    var parsedOrigins = corsOriginsConfig
-        .Split(',', StringSplitOptions.RemoveEmptyEntries)
-        .Select(o => o.Trim())
-        .Where(o => !string.IsNullOrEmpty(o))
-        .ToList();
-    
-    allowedOrigins.AddRange(parsedOrigins);
-}
-
-// Remove duplicates
-allowedOrigins = allowedOrigins.Distinct().ToList();
-
-// Log allowed origins for debugging
-Console.WriteLine("🌐 CORS Allowed Origins:");
-foreach (var origin in allowedOrigins)
-{
-    Console.WriteLine($"   ✓ {origin}");
-}
-
-builder.Services.AddCors(options =>
-{
-    // Policy cho Production (đọc từ env)
-    options.AddPolicy("AllowFrontend", policy =>
+    Console.WriteLine("⚠️ CORS: ALLOW ALL MODE ENABLED (NOT SECURE FOR PRODUCTION)");
+    builder.Services.AddCors(options =>
     {
-        policy
-            .SetIsOriginAllowed(origin => 
-            {
-                // Nếu không có origin header (same-origin request), cho phép
-                if (string.IsNullOrEmpty(origin))
-                    return true;
-                
-                // Check whitelist
-                var isAllowed = allowedOrigins.Any(allowed => 
-                    origin.Equals(allowed, StringComparison.OrdinalIgnoreCase) ||
-                    origin.StartsWith(allowed.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)
-                );
-                
-                Console.WriteLine($"🔍 CORS Check: Origin={origin}, Allowed={isAllowed}");
-                return isAllowed;
-            })
-            .AllowAnyMethod()
-            .AllowAnyHeader()
-            .AllowCredentials();
+        options.AddPolicy("AllowAll", policy =>
+        {
+            policy.SetIsOriginAllowed(_ => true)
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();
+        });
     });
-
-    // Policy cho Development (Allow all)
-    options.AddPolicy("AllowAll", policy =>
+}
+else
+{
+    // Parse allowed origins
+    var corsOriginsConfig = builder.Configuration["CORS:AllowedOrigins"];
+    var allowedOrigins = new List<string>
     {
-        policy.SetIsOriginAllowed(_ => true) // Allow any origin
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials();
+        "http://localhost:3000",
+        "http://localhost:3001"
+    };
+
+    if (!string.IsNullOrEmpty(corsOriginsConfig))
+    {
+        var parsedOrigins = corsOriginsConfig
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(o => o.Trim())
+            .Where(o => !string.IsNullOrEmpty(o))
+            .ToList();
+        
+        allowedOrigins.AddRange(parsedOrigins);
+    }
+
+    allowedOrigins = allowedOrigins.Distinct().ToList();
+
+    Console.WriteLine("🌐 CORS Allowed Origins:");
+    foreach (var origin in allowedOrigins)
+    {
+        Console.WriteLine($"   ✓ {origin}");
+    }
+
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("AllowFrontend", policy =>
+        {
+            policy.WithOrigins(allowedOrigins.ToArray())
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials()
+                  .SetIsOriginAllowedToAllowWildcardSubdomains();
+        });
     });
-});
+}
 
 var app = builder.Build();
 
@@ -238,63 +211,52 @@ var app = builder.Build();
 // 7. MIDDLEWARE PIPELINE
 // ==================================================================
 
-// Health check endpoint (cho Docker HEALTHCHECK)
-app.MapGet("/health", () => Results.Ok(new { 
+// Configure forwarded headers for reverse proxy
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
+
+// Health check
+app.MapGet("/health", () => Results.Ok(new 
+{ 
     status = "healthy", 
     timestamp = DateTime.UtcNow,
-    allowedOrigins = allowedOrigins // Debug info
+    corsMode = allowAll ? "AllowAll" : "Whitelist"
 }));
 
-// ✅ ENABLE SWAGGER CHO TẤT CẢ ENVIRONMENTS
+// Swagger
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {
     options.SwaggerEndpoint("/swagger/v1/swagger.json", "Interval Event Registration API v1");
-    options.RoutePrefix = "swagger"; // URL: /swagger
+    options.RoutePrefix = "swagger";
 });
 
-// app.UseHttpsRedirection();
+app.UseHttpsRedirection();
 
-// ✅ DEBUG MIDDLEWARE: Log tất cả requests
-app.Use(async (context, next) =>
+// CORS
+if (allowAll)
 {
-    var origin = context.Request.Headers["Origin"].ToString();
-    var referer = context.Request.Headers["Referer"].ToString();
-    var method = context.Request.Method;
-    var path = context.Request.Path;
-    
-    Console.WriteLine($"📨 Request: {method} {path}");
-    Console.WriteLine($"   Origin: {(string.IsNullOrEmpty(origin) ? "(empty)" : origin)}");
-    Console.WriteLine($"   Referer: {(string.IsNullOrEmpty(referer) ? "(empty)" : referer)}");
-    
-    await next();
-    
-    var corsHeaders = context.Response.Headers
-        .Where(h => h.Key.StartsWith("Access-Control"))
-        .Select(h => $"{h.Key}={h.Value}");
-    
-    if (corsHeaders.Any())
-    {
-        Console.WriteLine($"📤 CORS Headers: {string.Join(", ", corsHeaders)}");
-    }
-});
+    app.UseCors("AllowAll");
+    app.Logger.LogWarning("⚠️ CORS: AllowAll policy enabled (NOT SECURE FOR PRODUCTION)");
+}
+else
+{
+    app.UseCors("AllowFrontend");
+    app.Logger.LogInformation("🔒 CORS: AllowFrontend policy enabled");
+}
 
-// ✅ LUÔN DÙNG AllowFrontend (đã đọc từ env)
-app.UseCors("AllowFrontend");
-app.Logger.LogInformation("🔒 CORS: AllowFrontend policy enabled");
-app.Logger.LogInformation("🌐 Allowed origins: {Origins}", string.Join(", ", allowedOrigins));
-
-app.UseAuthentication(); // Đăng nhập
-app.UseAuthorization();  // Phân quyền
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 
-// Log startup info
+// Log startup
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 logger.LogInformation("🚀 Application started successfully!");
 logger.LogInformation("📍 Environment: {Environment}", app.Environment.EnvironmentName);
-logger.LogInformation("🔗 Swagger UI: https://s4kc4gkkkc4ssko484sscow8.14.225.231.92.sslip.io/swagger");
-logger.LogInformation("🌐 Frontend: https://eventfptticket.14.225.231.92.sslip.io");
-logger.LogInformation("❤️ Health Check: /health");
+logger.LogInformation("🔗 Swagger: /swagger");
+logger.LogInformation("❤️ Health: /health");
 
 app.Run();

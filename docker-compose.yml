@@ -35,6 +35,7 @@ services:
       # Load từ file .env
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ASPNETCORE_URLS=http://+:8080
+      - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
       - ConnectionStrings__DefaultConnectionStringDB=${ConnectionStrings__DefaultConnectionStringDB}
       - Jwt__Issuer=${Jwt__Issuer}
       - Jwt__Audience=${Jwt__Audience}
@@ -47,6 +48,7 @@ services:
       - Cloudinary__ApiKey=${Cloudinary__ApiKey}
       - Cloudinary__ApiSecret=${Cloudinary__ApiSecret}
       - CORS__AllowedOrigins=${CORS__AllowedOrigins}
+      - CORS__AllowAll=${CORS__AllowAll:-true}
     ports:
       - "8080:8080"
     depends_on:
