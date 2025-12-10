@@ -253,7 +253,7 @@ app.UseSwaggerUI(options =>
     options.RoutePrefix = "swagger"; // URL: /swagger
 });
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
 
 // ✅ DEBUG MIDDLEWARE: Log tất cả requests
 app.Use(async (context, next) =>
