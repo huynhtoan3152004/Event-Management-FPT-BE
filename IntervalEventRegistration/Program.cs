@@ -202,11 +202,24 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend", policy =>
     {
         policy
-            .WithOrigins(allowedOrigins.ToArray())
+            .SetIsOriginAllowed(origin => 
+            {
+                // Nếu không có origin header (same-origin request), cho phép
+                if (string.IsNullOrEmpty(origin))
+                    return true;
+                
+                // Check whitelist
+                var isAllowed = allowedOrigins.Any(allowed => 
+                    origin.Equals(allowed, StringComparison.OrdinalIgnoreCase) ||
+                    origin.StartsWith(allowed.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)
+                );
+                
+                Console.WriteLine($"🔍 CORS Check: Origin={origin}, Allowed={isAllowed}");
+                return isAllowed;
+            })
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials()
-            .SetIsOriginAllowedToAllowWildcardSubdomains(); // Cho phép wildcard nếu cần
+            .AllowCredentials();
     });
 
     // Policy cho Development (Allow all)
@@ -241,6 +254,30 @@ app.UseSwaggerUI(options =>
 });
 
 app.UseHttpsRedirection();
+
+// ✅ DEBUG MIDDLEWARE: Log tất cả requests
+app.Use(async (context, next) =>
+{
+    var origin = context.Request.Headers["Origin"].ToString();
+    var referer = context.Request.Headers["Referer"].ToString();
+    var method = context.Request.Method;
+    var path = context.Request.Path;
+    
+    Console.WriteLine($"📨 Request: {method} {path}");
+    Console.WriteLine($"   Origin: {(string.IsNullOrEmpty(origin) ? "(empty)" : origin)}");
+    Console.WriteLine($"   Referer: {(string.IsNullOrEmpty(referer) ? "(empty)" : referer)}");
+    
+    await next();
+    
+    var corsHeaders = context.Response.Headers
+        .Where(h => h.Key.StartsWith("Access-Control"))
+        .Select(h => $"{h.Key}={h.Value}");
+    
+    if (corsHeaders.Any())
+    {
+        Console.WriteLine($"📤 CORS Headers: {string.Join(", ", corsHeaders)}");
+    }
+});
 
 // ✅ LUÔN DÙNG AllowFrontend (đã đọc từ env)
 app.UseCors("AllowFrontend");
