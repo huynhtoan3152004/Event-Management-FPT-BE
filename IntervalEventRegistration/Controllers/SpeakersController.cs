@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using IntervalEventRegistrationService.DTOs.Common;
 using IntervalEventRegistrationService.DTOs.Request;
@@ -21,6 +22,7 @@ public class SpeakersController : ControllerBase
     /// Lấy danh sách tất cả speakers (có phân trang và tìm kiếm)
     /// </summary>
     [HttpGet]
+    [AllowAnonymous]
     public async Task<IActionResult> GetAllSpeakers([FromQuery] PaginationRequest request)
     {
         var result = await _speakerService.GetAllSpeakersAsync(request);
@@ -31,6 +33,7 @@ public class SpeakersController : ControllerBase
     /// Lấy chi tiết một speaker theo ID
     /// </summary>
     [HttpGet("{id}")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetSpeakerById(string id)
     {
         var result = await _speakerService.GetSpeakerByIdAsync(id);
@@ -47,6 +50,7 @@ public class SpeakersController : ControllerBase
     /// Tạo speaker mới
     /// </summary>
     [HttpPost]
+    [Authorize(Roles = "organizer")]
     [Consumes("multipart/form-data")] // Hỗ trợ form-data với file upload
     public async Task<IActionResult> CreateSpeaker([FromForm] CreateSpeakerRequest request)
     {
@@ -74,6 +78,7 @@ public class SpeakersController : ControllerBase
     /// Cập nhật thông tin speaker
     /// </summary>
     [HttpPut("{id}")]
+    [Authorize(Roles = "organizer")]
     [Consumes("multipart/form-data")] // Hỗ trợ form-data với file upload
     public async Task<IActionResult> UpdateSpeaker(string id, [FromForm] UpdateSpeakerRequest request)
     {
@@ -101,6 +106,7 @@ public class SpeakersController : ControllerBase
     /// Xóa speaker (soft delete)
     /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Roles = "organizer")]
     public async Task<IActionResult> DeleteSpeaker(string id)
     {
         var result = await _speakerService.DeleteSpeakerAsync(id);
@@ -117,6 +123,7 @@ public class SpeakersController : ControllerBase
     /// Lấy danh sách sự kiện của một speaker
     /// </summary>
     [HttpGet("{id}/events")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetSpeakerEvents(string id, [FromQuery] PaginationRequest request)
     {
         var result = await _speakerService.GetSpeakerEventsAsync(id, request);

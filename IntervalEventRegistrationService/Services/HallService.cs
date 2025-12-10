@@ -89,6 +89,7 @@ public class HallService : IHallService
             Capacity = request.Capacity,
             MaxRows = request.MaxRows > 0 ? request.MaxRows : 20,
             MaxSeatsPerRow = request.MaxSeatsPerRow > 0 ? request.MaxSeatsPerRow : 20,
+            Description = request.Description,
             Facilities = request.Facilities,
             Status = "active",
             IsActive = true,
@@ -112,7 +113,7 @@ public class HallService : IHallService
     {
         if (currentUserRole != "organizer")
         {
-            return ApiResponse<HallDetailDto>.FailureResponse("Bạn không có quyền chỉnh sửa hội trường này");
+            return ApiResponse<HallDetailDto>.FailureResponse("Chỉ Organizer mới có quyền chỉnh sửa hội trường");
         }
         var hall = await _hallRepository.GetByIdAsync(hallId);
 
@@ -135,6 +136,7 @@ public class HallService : IHallService
         hall.Name = request.Name;
         hall.Address = request.Location;
         hall.Capacity = request.Capacity;
+        hall.Description = request.Description;
         hall.Facilities = request.Facilities;
         hall.Status = request.Status;
 
@@ -426,6 +428,7 @@ public class HallService : IHallService
             Status = hall.Status,
             TotalSeats = totalSeats,
             CreatedAt = hall.CreatedAt,
+            Description = hall.Description,
             Facilities = hall.Facilities,
             FacilitiesParsed = facilitiesParsed,
             Seats = hall.Seats?.Select(s => new SeatDto

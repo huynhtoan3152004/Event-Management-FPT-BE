@@ -21,5 +21,8 @@ public class CreateHallRequestDto
     [Range(1, 100, ErrorMessage = "Số ghế mỗi hàng tối đa phải từ 1-100")]
     public int MaxSeatsPerRow { get; set; } = 20;
 
+    [StringLength(1000, ErrorMessage = "Mô tả không được vượt quá 1000 ký tự")]
+    public string? Description { get; set; }
+
     public string? Facilities { get; set; } // JSON string: {"projector":true,"mic":true,"wifi":true}
 }
