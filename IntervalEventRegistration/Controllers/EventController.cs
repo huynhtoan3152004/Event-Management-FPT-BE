@@ -13,10 +13,12 @@ namespace IntervalEventRegistration.Controllers;
 public class EventsController : ControllerBase
 {
     private readonly IEventService _eventService;
+    private readonly ILogger<EventsController> _logger;
 
-    public EventsController(IEventService eventService)
+    public EventsController(IEventService eventService, ILogger<EventsController> logger)
     {
         _eventService = eventService;
+        _logger = logger;
     }
 
     /// <summary>
@@ -73,25 +75,45 @@ public class EventsController : ControllerBase
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> CreateEvent([FromForm] CreateEventRequest request)
     {
-        if (!ModelState.IsValid)
+        try
         {
-            var errors = ModelState.Values
-                .SelectMany(v => v.Errors)
-                .Select(e => e.ErrorMessage)
-                .ToList();
+            _logger.LogInformation("=== CreateEvent called ===");
+            _logger.LogInformation("Request received - Title: {Title}, Date: {Date}", request.Title, request.Date);
+            _logger.LogInformation("User: {UserId}, Role: {Role}", 
+                User.FindFirstValue(ClaimTypes.NameIdentifier), 
+                User.FindFirstValue(ClaimTypes.Role));
 
-            return BadRequest(ApiResponse<EventDetailDto>.FailureResponse("Dữ liệu không hợp lệ", errors));
+            if (!ModelState.IsValid)
+            {
+                var errors = ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .ToList();
+
+                _logger.LogWarning("ModelState invalid: {Errors}", string.Join(", ", errors));
+                return BadRequest(ApiResponse<EventDetailDto>.FailureResponse("Dữ liệu không hợp lệ", errors));
+            }
+
+            var organizerId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+            _logger.LogInformation("Calling EventService.CreateEventAsync with organizerId: {OrganizerId}", organizerId);
+            
+            var result = await _eventService.CreateEventAsync(request, organizerId);
+
+            if (!result.Success)
+            {
+                _logger.LogWarning("CreateEvent failed: {Message}", result.Message);
+                return BadRequest(result);
+            }
+
+            _logger.LogInformation("CreateEvent succeeded - EventId: {EventId}", result.Data!.EventId);
+            return CreatedAtAction(nameof(GetEventById), new { id = result.Data!.EventId }, result);
         }
-
-        var organizerId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-        var result = await _eventService.CreateEventAsync(request, organizerId);
-
-        if (!result.Success)
+        catch (Exception ex)
         {
-            return BadRequest(result);
+            _logger.LogError(ex, "EXCEPTION in CreateEvent: {Message}", ex.Message);
+            _logger.LogError("StackTrace: {StackTrace}", ex.StackTrace);
+            return StatusCode(500, ApiResponse<EventDetailDto>.FailureResponse($"Lỗi server: {ex.Message}"));
         }
-
-        return CreatedAtAction(nameof(GetEventById), new { id = result.Data!.EventId }, result);
     }
 
     /// <summary>
