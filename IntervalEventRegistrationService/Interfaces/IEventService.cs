@@ -54,5 +54,10 @@ namespace IntervalEventRegistrationService.Interfaces
             string currentUserRole);
 
         Task<ApiResponse<List<SeatDto>>> GetEventAvailableSeatsAsync(string eventId);
+
+        /// <summary>
+        /// Get event statistics for check-in dashboard (Staff/Organizer only)
+        /// </summary>
+        Task<ApiResponse<EventStatisticsDto>> GetEventStatisticsAsync(string eventId);
     }
 }
