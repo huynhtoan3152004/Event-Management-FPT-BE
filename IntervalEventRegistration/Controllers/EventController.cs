@@ -112,6 +112,13 @@ public class EventsController : ControllerBase
         {
             _logger.LogError(ex, "EXCEPTION in CreateEvent: {Message}", ex.Message);
             _logger.LogError("StackTrace: {StackTrace}", ex.StackTrace);
+
+            if (ex.InnerException != null)
+            {
+                _logger.LogError(ex.InnerException, "Inner exception: {Message}", ex.InnerException.Message);
+                return StatusCode(500, ApiResponse<EventDetailDto>.FailureResponse($"Lỗi server: {ex.Message} | Chi tiết: {ex.InnerException.Message}"));
+            }
+
             return StatusCode(500, ApiResponse<EventDetailDto>.FailureResponse($"Lỗi server: {ex.Message}"));
         }
     }

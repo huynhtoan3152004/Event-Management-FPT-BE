@@ -14,13 +14,20 @@ public class EventService : IEventService
     private readonly ICloudinaryService _cloudinaryService;
     private readonly IHallRepository _hallRepository;
     private readonly ISeatRepository _seatRepository;
+    private readonly ISpeakerRepository _speakerRepository;
 
-    public EventService(IEventRepository eventRepository, ICloudinaryService cloudinaryService, IHallRepository hallRepository, ISeatRepository seatRepository)
+    public EventService(
+        IEventRepository eventRepository,
+        ICloudinaryService cloudinaryService,
+        IHallRepository hallRepository,
+        ISeatRepository seatRepository,
+        ISpeakerRepository speakerRepository)
     {
         _eventRepository = eventRepository;
         _cloudinaryService = cloudinaryService;
         _hallRepository = hallRepository;
         _seatRepository = seatRepository;
+        _speakerRepository = speakerRepository;
     }
 
     public async Task<PagedResponse<EventListItemDto>> GetAllEventsAsync(
@@ -108,49 +115,93 @@ public class EventService : IEventService
             return ApiResponse<EventDetailDto>.FailureResponse("Ngày sự kiện không được ở quá khứ");
         }
 
-        // Validate Hall exists and get configuration
-        var hall = await _hallRepository.GetByIdAsync(request.HallId);
-        if (hall == null || hall.IsDeleted)
-        {
-            return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy hội trường");
-        }
+        var hasHall = !string.IsNullOrWhiteSpace(request.HallId);
 
-        // Auto get seat configuration from Hall
-        var totalSeats = hall.Capacity;
-        var maxRows = hall.MaxRows;
-        var maxSeatsPerRow = hall.MaxSeatsPerRow;
+        int totalSeats = 0;
+        int maxRows = 0;
+        int maxSeatsPerRow = 0;
+        Hall? hall = null;
 
-        // Check hall availability
-        var hallAvailable = await _hallRepository.IsHallAvailableAsync(request.HallId, request.Date, request.StartTime, request.EndTime);
-        if (!hallAvailable)
+        if (hasHall)
         {
-            return ApiResponse<EventDetailDto>.FailureResponse("Hội trường đang có sự kiện trùng thời gian");
-        }
-
-        // Check 5-hour gap requirement
-        var (sameDayEvents, _) = await _eventRepository.GetAllAsync(1, 1000, null, null, request.Date, request.Date, request.HallId, null);
-        foreach (var e in sameDayEvents)
-        {
-            var startA = request.StartTime;
-            var endA = request.EndTime;
-            var startB = e.StartTime;
-            var endB = e.EndTime;
-            if (endA <= startB)
+            // Validate Hall exists and get configuration
+            hall = await _hallRepository.GetByIdAsync(request.HallId!);
+            if (hall == null || hall.IsDeleted)
             {
-                var gap = startB.ToTimeSpan() - endA.ToTimeSpan();
-                if (gap.TotalHours < 5)
+                return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy hội trường");
+            }
+
+            // Auto get seat configuration from Hall
+            totalSeats = hall.Capacity;
+            maxRows = hall.MaxRows;
+            maxSeatsPerRow = hall.MaxSeatsPerRow;
+
+            // Validate hall capacity/config to avoid FK/seat generation errors
+            if (totalSeats <= 0)
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse("Hội trường không có sức chứa hợp lệ (Capacity phải > 0)");
+            }
+            if (maxRows <= 0)
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse("Hội trường không có cấu hình hàng ghế hợp lệ (MaxRows phải > 0)");
+            }
+            if (maxSeatsPerRow <= 0)
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse("Hội trường không có cấu hình ghế mỗi hàng hợp lệ (MaxSeatsPerRow phải > 0)");
+            }
+
+            // Check hall availability
+            var hallAvailable = await _hallRepository.IsHallAvailableAsync(request.HallId!, request.Date, request.StartTime, request.EndTime);
+            if (!hallAvailable)
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse("Hội trường đang có sự kiện trùng thời gian");
+            }
+
+            // Check 5-hour gap requirement
+            var (sameDayEvents, _) = await _eventRepository.GetAllAsync(1, 1000, null, null, request.Date, request.Date, request.HallId, null);
+            foreach (var e in sameDayEvents)
+            {
+                var startA = request.StartTime;
+                var endA = request.EndTime;
+                var startB = e.StartTime;
+                var endB = e.EndTime;
+                if (endA <= startB)
                 {
-                    return ApiResponse<EventDetailDto>.FailureResponse("Khoảng cách giữa các sự kiện cùng ngày phải tối thiểu 5 giờ");
+                    var gap = startB.ToTimeSpan() - endA.ToTimeSpan();
+                    if (gap.TotalHours < 5)
+                    {
+                        return ApiResponse<EventDetailDto>.FailureResponse("Khoảng cách giữa các sự kiện cùng ngày phải tối thiểu 5 giờ");
+                    }
+                }
+                else if (endB <= startA)
+                {
+                    var gap = startA.ToTimeSpan() - endB.ToTimeSpan();
+                    if (gap.TotalHours < 5)
+                    {
+                        return ApiResponse<EventDetailDto>.FailureResponse("Khoảng cách giữa các sự kiện cùng ngày phải tối thiểu 5 giờ");
+                    }
                 }
             }
-            else if (endB <= startA)
+        }
+        else
+        {
+            // Không có HallId: yêu cầu Location để có địa điểm hiển thị
+            if (string.IsNullOrWhiteSpace(request.Location))
             {
-                var gap = startA.ToTimeSpan() - endB.ToTimeSpan();
-                if (gap.TotalHours < 5)
-                {
-                    return ApiResponse<EventDetailDto>.FailureResponse("Khoảng cách giữa các sự kiện cùng ngày phải tối thiểu 5 giờ");
-                }
+                return ApiResponse<EventDetailDto>.FailureResponse("Vui lòng nhập Location nếu không chọn Hall");
             }
+        }
+
+        // Normalize registration times to UTC (avoid Kind=Unspecified for PostgreSQL timestamp with time zone)
+        DateTime? regStartUtc = null;
+        DateTime? regEndUtc = null;
+        if (request.RegistrationStart.HasValue)
+        {
+            regStartUtc = DateTime.SpecifyKind(request.RegistrationStart.Value, DateTimeKind.Utc);
+        }
+        if (request.RegistrationEnd.HasValue)
+        {
+            regEndUtc = DateTime.SpecifyKind(request.RegistrationEnd.Value, DateTimeKind.Utc);
         }
 
         // Upload image if provided
@@ -168,8 +219,8 @@ public class EventService : IEventService
             Date = request.Date,
             StartTime = request.StartTime,
             EndTime = request.EndTime,
-            Location = request.Location ?? hall.Address,
-            HallId = request.HallId,
+            Location = request.Location ?? hall?.Address,
+            HallId = hasHall ? request.HallId : null,
             OrganizerId = organizerId,
             ImageUrl = imageUrl,
             Status = "draft",
@@ -180,8 +231,8 @@ public class EventService : IEventService
             CheckedInCount = 0,
             Tags = request.Tags,
             MaxTicketsPerUser = request.MaxTicketsPerUser,
-            RegistrationStart = request.RegistrationStart,
-            RegistrationEnd = request.RegistrationEnd,
+            RegistrationStart = regStartUtc,
+            RegistrationEnd = regEndUtc,
             IsDeleted = false,
             CreatedAt = DateTime.UtcNow
         };
@@ -189,9 +240,23 @@ public class EventService : IEventService
         await _eventRepository.AddAsync(eventEntity);
         await _eventRepository.SaveChangesAsync();
 
-        // Add Speakers if provided
+        // Add Speakers if provided - validate existence first to avoid FK violation
         if (request.SpeakerIds != null && request.SpeakerIds.Any())
         {
+            foreach (var speakerId in request.SpeakerIds)
+            {
+                if (string.IsNullOrWhiteSpace(speakerId))
+                {
+                    return ApiResponse<EventDetailDto>.FailureResponse("SpeakerId không được để trống");
+                }
+
+                var exists = await _speakerRepository.ExistsAsync(speakerId);
+                if (!exists)
+                {
+                    return ApiResponse<EventDetailDto>.FailureResponse($"Không tìm thấy Speaker với ID: {speakerId}");
+                }
+            }
+
             foreach (var speakerId in request.SpeakerIds)
             {
                 var eventSpeaker = new EventSpeaker
@@ -206,8 +271,11 @@ public class EventService : IEventService
             await _eventRepository.SaveChangesAsync();
         }
 
-        // Generate seats for the event using Hall configuration
-        await GenerateSeatsForEventAsync(eventEntity.EventId, request.HallId, maxRows, maxSeatsPerRow);
+        // Generate seats for the event using Hall configuration (chỉ khi có hall)
+        if (hasHall)
+        {
+            await GenerateSeatsForEventAsync(eventEntity.EventId, request.HallId!, maxRows, maxSeatsPerRow);
+        }
 
         var createdEvent = await _eventRepository.GetByIdAsync(eventEntity.EventId, includeRelations: true);
         var dto = MapToDetailDto(createdEvent!);
@@ -314,6 +382,18 @@ public class EventService : IEventService
             }
         }
 
+        // Normalize registration times to UTC (avoid Kind=Unspecified for PostgreSQL timestamp with time zone)
+        DateTime? regStartUtc = null;
+        DateTime? regEndUtc = null;
+        if (request.RegistrationStart.HasValue)
+        {
+            regStartUtc = DateTime.SpecifyKind(request.RegistrationStart.Value, DateTimeKind.Utc);
+        }
+        if (request.RegistrationEnd.HasValue)
+        {
+            regEndUtc = DateTime.SpecifyKind(request.RegistrationEnd.Value, DateTimeKind.Utc);
+        }
+
         // Upload new image if provided
         if (request.ImageFile != null)
         {
@@ -335,8 +415,8 @@ public class EventService : IEventService
         eventEntity.SeatsPerRow = request.SeatsPerRow;
         eventEntity.Tags = request.Tags;
         eventEntity.MaxTicketsPerUser = request.MaxTicketsPerUser;
-        eventEntity.RegistrationStart = request.RegistrationStart;
-        eventEntity.RegistrationEnd = request.RegistrationEnd;
+        eventEntity.RegistrationStart = regStartUtc;
+        eventEntity.RegistrationEnd = regEndUtc;
 
         await _eventRepository.UpdateAsync(eventEntity);
         await _eventRepository.SaveChangesAsync();

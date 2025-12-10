@@ -23,9 +23,8 @@ public class CreateEventRequest
     [StringLength(500, ErrorMessage = "Địa điểm không được vượt quá 500 ký tự")]
     public string? Location { get; set; }
 
-    [Required(ErrorMessage = "HallId là bắt buộc")]
     [StringLength(50)]
-    public string HallId { get; set; } = string.Empty;
+    public string? HallId { get; set; }
 
     public DateTime? RegistrationStart { get; set; }
 
