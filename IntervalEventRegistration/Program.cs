@@ -79,6 +79,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<IHallService, HallService>();
 builder.Services.AddScoped<ITicketService, TicketService>();
+builder.Services.AddScoped<IUserService, UserService>();
 
 builder.Services.AddControllers();
 
@@ -162,10 +163,25 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // ==================================================================
-// 6. CORS CONFIGURATION
+// 6. ✅ CORS CONFIGURATION (Cấu hình cho Production)
 // ==================================================================
 builder.Services.AddCors(options =>
 {
+    // Policy cho Production
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy
+            .WithOrigins(
+                "http://localhost:3000",                                        // Local dev
+                "https://eventfptticket.14.225.231.92.sslip.io",              // Frontend domain
+                "https://s4kc4gkkkc4ssko484sscow8.14.225.231.92.sslip.io"    // Backend domain (cho Swagger test)
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials(); // Cho phép gửi cookies/JWT
+    });
+
+    // Policy cho Development (Allow all)
     options.AddPolicy("AllowAll", policy =>
     {
         policy.AllowAnyOrigin()
@@ -183,7 +199,7 @@ var app = builder.Build();
 // Health check endpoint (cho Docker HEALTHCHECK)
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
-// ✅ ENABLE SWAGGER CHO TẤT CẢ ENVIRONMENTS (để test trên Coolify)
+// ✅ ENABLE SWAGGER CHO TẤT CẢ ENVIRONMENTS
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {
@@ -193,7 +209,17 @@ app.UseSwaggerUI(options =>
 
 app.UseHttpsRedirection();
 
-app.UseCors("AllowAll"); // Đặt trước Auth
+// ✅ SỬ DỤNG CORS DỰA TRÊN ENVIRONMENT
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors("AllowAll"); // Dev: cho phép tất cả để test dễ dàng
+    app.Logger.LogInformation("🔓 CORS: AllowAll policy enabled (Development)");
+}
+else
+{
+    app.UseCors("AllowFrontend"); // Production: chỉ cho phép frontend cụ thể
+    app.Logger.LogInformation("🔒 CORS: AllowFrontend policy enabled (Production)");
+}
 
 app.UseAuthentication(); // Đăng nhập
 app.UseAuthorization();  // Phân quyền
@@ -204,7 +230,8 @@ app.MapControllers();
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 logger.LogInformation("🚀 Application started successfully!");
 logger.LogInformation("📍 Environment: {Environment}", app.Environment.EnvironmentName);
-logger.LogInformation("🔗 Swagger UI: /swagger");
+logger.LogInformation("🔗 Swagger UI: https://s4kc4gkkkc4ssko484sscow8.14.225.231.92.sslip.io/swagger");
+logger.LogInformation("🌐 Frontend: https://eventfptticket.14.225.231.92.sslip.io");
 logger.LogInformation("❤️ Health Check: /health");
 
 app.Run();
