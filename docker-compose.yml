@@ -46,6 +46,7 @@ services:
       - Cloudinary__CloudName=${Cloudinary__CloudName}
       - Cloudinary__ApiKey=${Cloudinary__ApiKey}
       - Cloudinary__ApiSecret=${Cloudinary__ApiSecret}
+      - CORS__AllowedOrigins=${CORS__AllowedOrigins}
     ports:
       - "8080:8080"
     depends_on:
