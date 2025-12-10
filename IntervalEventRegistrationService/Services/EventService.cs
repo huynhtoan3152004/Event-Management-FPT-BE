@@ -316,60 +316,59 @@ public class EventService : IEventService
             return ApiResponse<EventDetailDto>.FailureResponse("Bạn không có quyền chỉnh sửa sự kiện này");
         }
 
-        // Organizers can edit all events including cancelled/completed
-
         // Validate time
         if (request.EndTime <= request.StartTime)
         {
             return ApiResponse<EventDetailDto>.FailureResponse("Thời gian kết thúc phải sau thời gian bắt đầu");
         }
 
-        // Validate Rows * SeatsPerRow = TotalSeats
-        if (request.Rows * request.SeatsPerRow != request.TotalSeats)
-        {
-            return ApiResponse<EventDetailDto>.FailureResponse($"Tổng số ghế phải bằng Số hàng × Số ghế mỗi hàng ({request.Rows} × {request.SeatsPerRow} = {request.Rows * request.SeatsPerRow})");
-        }
+        // Get hall configuration (similar to CreateEvent)
+        bool hasHall = !string.IsNullOrWhiteSpace(request.HallId);
+        Hall? hall = null;
+        int totalSeats = eventEntity.TotalSeats; // Keep existing if no hall change
+        int maxRows = eventEntity.NumberOfRows;
+        int maxSeatsPerRow = eventEntity.SeatsPerRow;
+        bool seatConfigChanged = false;
 
-        // Cannot reduce total seats below registered count
-        if (request.TotalSeats < eventEntity.RegisteredCount)
+        if (hasHall)
         {
-            return ApiResponse<EventDetailDto>.FailureResponse(
-                $"Không thể giảm số ghế xuống dưới {eventEntity.RegisteredCount} (số người đã đăng ký)");
-        }
-
-        // Check if seat configuration changed
-        bool seatConfigChanged = eventEntity.NumberOfRows != request.Rows || 
-                                 eventEntity.SeatsPerRow != request.SeatsPerRow;
-
-        if (!string.IsNullOrWhiteSpace(request.HallId))
-        {
-            var hall = await _hallRepository.GetByIdAsync(request.HallId!);
+            hall = await _hallRepository.GetByIdAsync(request.HallId!);
             if (hall == null || hall.IsDeleted)
             {
                 return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy hội trường");
             }
 
-            // Validate Hall capacity limits
-            if (request.Rows > hall.MaxRows)
+            // Auto-fetch hall configuration
+            totalSeats = hall.Capacity;
+            maxRows = hall.MaxRows;
+            maxSeatsPerRow = hall.MaxSeatsPerRow;
+
+            // Validate hall capacity/config
+            if (totalSeats <= 0 || maxRows <= 0 || maxSeatsPerRow <= 0)
             {
-                return ApiResponse<EventDetailDto>.FailureResponse($"Số hàng ({request.Rows}) vượt quá giới hạn hội trường ({hall.MaxRows} hàng)");
+                return ApiResponse<EventDetailDto>.FailureResponse("Hội trường không có cấu hình hợp lệ");
             }
 
-            if (request.SeatsPerRow > hall.MaxSeatsPerRow)
+            // Cannot reduce total seats below registered count
+            if (totalSeats < eventEntity.RegisteredCount)
             {
-                return ApiResponse<EventDetailDto>.FailureResponse($"Số ghế mỗi hàng ({request.SeatsPerRow}) vượt quá giới hạn hội trường ({hall.MaxSeatsPerRow} ghế/hàng)");
+                return ApiResponse<EventDetailDto>.FailureResponse(
+                    $"Hội trường mới chỉ có {totalSeats} ghế, không đủ cho {eventEntity.RegisteredCount} người đã đăng ký");
             }
 
-            if (request.TotalSeats > hall.Capacity)
-            {
-                return ApiResponse<EventDetailDto>.FailureResponse($"Tổng số ghế ({request.TotalSeats}) vượt quá sức chứa hội trường ({hall.Capacity})");
-            }
+            // Check if seat configuration changed
+            seatConfigChanged = eventEntity.HallId != request.HallId ||
+                                eventEntity.NumberOfRows != maxRows || 
+                                eventEntity.SeatsPerRow != maxSeatsPerRow;
+
+            // Check hall availability (exclude current event)
             var conflicts = await _hallRepository.GetConflictingEventsAsync(request.HallId!, request.Date, request.StartTime, request.EndTime);
             if (conflicts.Any(c => c.EventId != eventId))
             {
                 return ApiResponse<EventDetailDto>.FailureResponse("Hội trường đang có sự kiện trùng thời gian");
             }
-            // Khoảng cách tối thiểu 5 giờ với các sự kiện khác cùng ngày
+
+            // Check 5-hour gap requirement
             var (sameDayEvents, _) = await _eventRepository.GetAllAsync(1, 1000, null, null, request.Date, request.Date, request.HallId, null);
             foreach (var e in sameDayEvents.Where(x => x.EventId != eventId))
             {
@@ -395,8 +394,16 @@ public class EventService : IEventService
                 }
             }
         }
+        else
+        {
+            // Không có HallId: yêu cầu Location
+            if (string.IsNullOrWhiteSpace(request.Location))
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse("Vui lòng nhập Location nếu không chọn Hall");
+            }
+        }
 
-        // Normalize registration times to UTC (avoid Kind=Unspecified for PostgreSQL timestamp with time zone)
+        // Normalize registration times to UTC
         DateTime? regStartUtc = null;
         DateTime? regEndUtc = null;
         if (request.RegistrationStart.HasValue)
@@ -420,13 +427,11 @@ public class EventService : IEventService
         eventEntity.Date = request.Date;
         eventEntity.StartTime = request.StartTime;
         eventEntity.EndTime = request.EndTime;
-        eventEntity.Location = request.Location;
-        eventEntity.HallId = request.HallId;
-        eventEntity.ClubId = request.ClubId;
-        eventEntity.ClubName = request.ClubName;
-        eventEntity.TotalSeats = request.TotalSeats;
-        eventEntity.NumberOfRows = request.Rows;
-        eventEntity.SeatsPerRow = request.SeatsPerRow;
+        eventEntity.Location = request.Location ?? hall?.Address;
+        eventEntity.HallId = hasHall ? request.HallId : null;
+        eventEntity.TotalSeats = totalSeats;
+        eventEntity.NumberOfRows = maxRows;
+        eventEntity.SeatsPerRow = maxSeatsPerRow;
         eventEntity.Tags = request.Tags;
         eventEntity.MaxTicketsPerUser = request.MaxTicketsPerUser;
         eventEntity.RegistrationStart = regStartUtc;
@@ -436,14 +441,50 @@ public class EventService : IEventService
         await _eventRepository.SaveChangesAsync();
 
         // Regenerate seats if configuration changed and event has a hall
-        if (seatConfigChanged && !string.IsNullOrWhiteSpace(request.HallId))
+        if (seatConfigChanged && hasHall)
         {
             // Delete old seats for this event
             await _seatRepository.DeleteByEventIdAsync(eventId);
             await _seatRepository.SaveChangesAsync();
 
             // Generate new seats
-            await GenerateSeatsForEventAsync(eventId, request.HallId!, request.Rows, request.SeatsPerRow);
+            await GenerateSeatsForEventAsync(eventId, request.HallId!, maxRows, maxSeatsPerRow);
+        }
+
+        // Update speakers if provided
+        if (request.SpeakerIds != null && request.SpeakerIds.Any())
+        {
+            // Validate speakers exist
+            foreach (var speakerId in request.SpeakerIds.Distinct())
+            {
+                if (string.IsNullOrWhiteSpace(speakerId))
+                {
+                    return ApiResponse<EventDetailDto>.FailureResponse("SpeakerId không được để trống");
+                }
+
+                var exists = await _speakerRepository.ExistsAsync(speakerId);
+                if (!exists)
+                {
+                    return ApiResponse<EventDetailDto>.FailureResponse($"Không tìm thấy Speaker với ID: {speakerId}");
+                }
+            }
+
+            // Remove old speakers
+            eventEntity.EventSpeakers.Clear();
+
+            // Add new speakers
+            foreach (var speakerId in request.SpeakerIds.Distinct())
+            {
+                var eventSpeaker = new EventSpeaker
+                {
+                    EventId = eventId,
+                    SpeakerId = speakerId,
+                    DisplayOrder = request.SpeakerIds.IndexOf(speakerId),
+                    CreatedAt = DateTime.UtcNow
+                };
+                eventEntity.EventSpeakers.Add(eventSpeaker);
+            }
+            await _eventRepository.SaveChangesAsync();
         }
 
         var updatedEvent = await _eventRepository.GetByIdAsync(eventId, includeRelations: true);

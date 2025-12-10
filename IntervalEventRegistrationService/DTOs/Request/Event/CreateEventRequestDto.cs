@@ -65,22 +65,6 @@ public class UpdateEventRequest
     [StringLength(50)]
     public string? HallId { get; set; }
 
-    [StringLength(50)]
-    public string? ClubId { get; set; }
-
-    [StringLength(200)]
-    public string? ClubName { get; set; }
-
-    [Required(ErrorMessage = "Tổng số ghế là bắt buộc")]
-    [Range(1, int.MaxValue, ErrorMessage = "Số ghế phải lớn hơn 0")]
-    public int TotalSeats { get; set; }
-
-    [Range(0, int.MaxValue, ErrorMessage = "Số hàng không hợp lệ")]
-    public int Rows { get; set; } = 0;
-
-    [Range(0, int.MaxValue, ErrorMessage = "Số ghế mỗi hàng không hợp lệ")]
-    public int SeatsPerRow { get; set; } = 0;
-
     public DateTime? RegistrationStart { get; set; }
 
     public DateTime? RegistrationEnd { get; set; }
@@ -90,7 +74,11 @@ public class UpdateEventRequest
     [Range(1, 10, ErrorMessage = "Số vé tối đa mỗi người phải từ 1-10")]
     public int MaxTicketsPerUser { get; set; } = 1;
 
+    // File upload cho ảnh sự kiện
     public IFormFile? ImageFile { get; set; }
+
+    // Danh sách Speaker IDs
+    public List<string>? SpeakerIds { get; set; }
 }
 
 public class EventFilterRequest
