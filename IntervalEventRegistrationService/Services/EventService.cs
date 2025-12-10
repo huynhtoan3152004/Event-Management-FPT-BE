@@ -108,64 +108,47 @@ public class EventService : IEventService
             return ApiResponse<EventDetailDto>.FailureResponse("Ngày sự kiện không được ở quá khứ");
         }
 
-        // Validate Rows * SeatsPerRow = TotalSeats
-        if (request.Rows * request.SeatsPerRow != request.TotalSeats)
+        // Validate Hall exists and get configuration
+        var hall = await _hallRepository.GetByIdAsync(request.HallId);
+        if (hall == null || hall.IsDeleted)
         {
-            return ApiResponse<EventDetailDto>.FailureResponse($"Tổng số ghế phải bằng Số hàng × Số ghế mỗi hàng ({request.Rows} × {request.SeatsPerRow} = {request.Rows * request.SeatsPerRow})");
+            return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy hội trường");
         }
 
-        if (!string.IsNullOrWhiteSpace(request.HallId))
+        // Auto get seat configuration from Hall
+        var totalSeats = hall.Capacity;
+        var maxRows = hall.MaxRows;
+        var maxSeatsPerRow = hall.MaxSeatsPerRow;
+
+        // Check hall availability
+        var hallAvailable = await _hallRepository.IsHallAvailableAsync(request.HallId, request.Date, request.StartTime, request.EndTime);
+        if (!hallAvailable)
         {
-            var hall = await _hallRepository.GetByIdAsync(request.HallId!);
-            if (hall == null || hall.IsDeleted)
-            {
-                return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy hội trường");
-            }
+            return ApiResponse<EventDetailDto>.FailureResponse("Hội trường đang có sự kiện trùng thời gian");
+        }
 
-            // Validate Hall capacity limits
-            if (request.Rows > hall.MaxRows)
+        // Check 5-hour gap requirement
+        var (sameDayEvents, _) = await _eventRepository.GetAllAsync(1, 1000, null, null, request.Date, request.Date, request.HallId, null);
+        foreach (var e in sameDayEvents)
+        {
+            var startA = request.StartTime;
+            var endA = request.EndTime;
+            var startB = e.StartTime;
+            var endB = e.EndTime;
+            if (endA <= startB)
             {
-                return ApiResponse<EventDetailDto>.FailureResponse($"Số hàng ({request.Rows}) vượt quá giới hạn hội trường ({hall.MaxRows} hàng)");
-            }
-
-            if (request.SeatsPerRow > hall.MaxSeatsPerRow)
-            {
-                return ApiResponse<EventDetailDto>.FailureResponse($"Số ghế mỗi hàng ({request.SeatsPerRow}) vượt quá giới hạn hội trường ({hall.MaxSeatsPerRow} ghế/hàng)");
-            }
-
-            if (request.TotalSeats > hall.Capacity)
-            {
-                return ApiResponse<EventDetailDto>.FailureResponse($"Tổng số ghế ({request.TotalSeats}) vượt quá sức chứa hội trường ({hall.Capacity})");
-            }
-
-            var hallAvailable = await _hallRepository.IsHallAvailableAsync(request.HallId!, request.Date, request.StartTime, request.EndTime);
-            if (!hallAvailable)
-            {
-                return ApiResponse<EventDetailDto>.FailureResponse("Hội trường đang có sự kiện trùng thời gian");
-            }
-            // Yêu cầu cách tối thiểu 5 giờ với sự kiện khác cùng ngày trong hall
-            var (sameDayEvents, _) = await _eventRepository.GetAllAsync(1, 1000, null, null, request.Date, request.Date, request.HallId, null);
-            foreach (var e in sameDayEvents)
-            {
-                var startA = request.StartTime;
-                var endA = request.EndTime;
-                var startB = e.StartTime;
-                var endB = e.EndTime;
-                if (endA <= startB)
+                var gap = startB.ToTimeSpan() - endA.ToTimeSpan();
+                if (gap.TotalHours < 5)
                 {
-                    var gap = startB.ToTimeSpan() - endA.ToTimeSpan();
-                    if (gap.TotalHours < 5)
-                    {
-                        return ApiResponse<EventDetailDto>.FailureResponse("Khoảng cách giữa các sự kiện cùng ngày phải tối thiểu 5 giờ");
-                    }
+                    return ApiResponse<EventDetailDto>.FailureResponse("Khoảng cách giữa các sự kiện cùng ngày phải tối thiểu 5 giờ");
                 }
-                else if (endB <= startA)
+            }
+            else if (endB <= startA)
+            {
+                var gap = startA.ToTimeSpan() - endB.ToTimeSpan();
+                if (gap.TotalHours < 5)
                 {
-                    var gap = startA.ToTimeSpan() - endB.ToTimeSpan();
-                    if (gap.TotalHours < 5)
-                    {
-                        return ApiResponse<EventDetailDto>.FailureResponse("Khoảng cách giữa các sự kiện cùng ngày phải tối thiểu 5 giờ");
-                    }
+                    return ApiResponse<EventDetailDto>.FailureResponse("Khoảng cách giữa các sự kiện cùng ngày phải tối thiểu 5 giờ");
                 }
             }
         }
@@ -185,16 +168,14 @@ public class EventService : IEventService
             Date = request.Date,
             StartTime = request.StartTime,
             EndTime = request.EndTime,
-            Location = request.Location,
+            Location = request.Location ?? hall.Address,
             HallId = request.HallId,
             OrganizerId = organizerId,
-            ClubId = request.ClubId,
-            ClubName = request.ClubName,
             ImageUrl = imageUrl,
             Status = "draft",
-            TotalSeats = request.TotalSeats,
-            NumberOfRows = request.Rows,
-            SeatsPerRow = request.SeatsPerRow,
+            TotalSeats = totalSeats,
+            NumberOfRows = maxRows,
+            SeatsPerRow = maxSeatsPerRow,
             RegisteredCount = 0,
             CheckedInCount = 0,
             Tags = request.Tags,
@@ -225,11 +206,8 @@ public class EventService : IEventService
             await _eventRepository.SaveChangesAsync();
         }
 
-        // Generate seats for the event
-        if (!string.IsNullOrWhiteSpace(request.HallId))
-        {
-            await GenerateSeatsForEventAsync(eventEntity.EventId, request.HallId!, request.Rows, request.SeatsPerRow);
-        }
+        // Generate seats for the event using Hall configuration
+        await GenerateSeatsForEventAsync(eventEntity.EventId, request.HallId, maxRows, maxSeatsPerRow);
 
         var createdEvent = await _eventRepository.GetByIdAsync(eventEntity.EventId, includeRelations: true);
         var dto = MapToDetailDto(createdEvent!);

@@ -23,26 +23,9 @@ public class CreateEventRequest
     [StringLength(500, ErrorMessage = "Địa điểm không được vượt quá 500 ký tự")]
     public string? Location { get; set; }
 
+    [Required(ErrorMessage = "HallId là bắt buộc")]
     [StringLength(50)]
-    public string? HallId { get; set; }
-
-    [StringLength(50)]
-    public string? ClubId { get; set; }
-
-    [StringLength(200)]
-    public string? ClubName { get; set; }
-
-    [Required(ErrorMessage = "Tổng số ghế là bắt buộc")]
-    [Range(1, int.MaxValue, ErrorMessage = "Số ghế phải lớn hơn 0")]
-    public int TotalSeats { get; set; }
-
-    [Required(ErrorMessage = "Số hàng là bắt buộc")]
-    [Range(1, int.MaxValue, ErrorMessage = "Số hàng phải lớn hơn 0")]
-    public int Rows { get; set; }
-
-    [Required(ErrorMessage = "Số ghế mỗi hàng là bắt buộc")]
-    [Range(1, int.MaxValue, ErrorMessage = "Số ghế mỗi hàng phải lớn hơn 0")]
-    public int SeatsPerRow { get; set; }
+    public string HallId { get; set; } = string.Empty;
 
     public DateTime? RegistrationStart { get; set; }
 
