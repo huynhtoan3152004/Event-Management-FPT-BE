@@ -216,4 +216,57 @@ public class EventsController : ControllerBase
         }
         return Ok(result);
     }
+
+    /// <summary>
+    /// Get event statistics for check-in dashboard (Staff/Organizer only)
+    /// </summary>
+    /// <param name="id">Event ID</param>
+    /// <returns>Event statistics including check-in data</returns>
+    [HttpGet("{id}/statistics")]
+    [Authorize(Roles = "staff,organizer")]
+    [ProducesResponseType(typeof(ApiResponse<EventStatisticsDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetEventStatistics(string id)
+    {
+        _logger.LogInformation("Staff/Organizer getting statistics for event: {EventId}", id);
+        
+        var result = await _eventService.GetEventStatisticsAsync(id);
+        
+        if (!result.Success)
+        {
+            return NotFound(result);
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Get live event statistics (for real-time dashboard)
+    /// </summary>
+    [HttpGet("{id}/live-stats")]
+    [Authorize(Roles = "staff,organizer")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetLiveStats(string id)
+    {
+        var result = await _eventService.GetEventStatisticsAsync(id);
+        
+        if (!result.Success)
+        {
+            return NotFound(result);
+        }
+
+        // Return simplified stats for live updates
+        var liveStats = new
+        {
+            checkedIn = result.Data!.CheckedInCount,
+            registered = result.Data.RegisteredCount,
+            capacity = result.Data.TotalSeats,
+            rate = $"{result.Data.CheckInRate}%",
+            status = result.Data.Status,
+            recentCheckIns = result.Data.RecentCheckIns.Take(5)
+        };
+
+        return Ok(ApiResponse<object>.SuccessResponse(liveStats, "Live stats"));
+    }
 }

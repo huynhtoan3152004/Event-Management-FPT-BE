@@ -27,6 +27,18 @@ public class TicketCheckinRepository : ITicketCheckinRepository
             .ToListAsync();
     }
 
+    public async Task<List<TicketCheckin>> GetByEventIdAsync(string eventId)
+    {
+        return await _context.TicketCheckins
+            .Include(tc => tc.Ticket!)
+                .ThenInclude(t => t.Student)
+            .Include(tc => tc.Ticket!)
+                .ThenInclude(t => t.Seat)
+            .Where(tc => tc.Ticket != null && tc.Ticket.EventId == eventId)
+            .OrderByDescending(tc => tc.CheckinTime)
+            .ToListAsync();
+    }
+
     public async Task SaveChangesAsync()
     {
         await _context.SaveChangesAsync();

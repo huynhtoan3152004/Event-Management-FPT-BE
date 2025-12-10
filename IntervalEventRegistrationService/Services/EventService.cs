@@ -5,6 +5,7 @@ using IntervalEventRegistrationService.DTOs.Request;
 using IntervalEventRegistrationService.DTOs.Response;
 using IntervalEventRegistrationService.DTOs.Response.Hall;
 using IntervalEventRegistrationService.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace IntervalEventRegistrationService.Services;
 
@@ -14,19 +15,32 @@ public class EventService : IEventService
     private readonly ICloudinaryService _cloudinaryService;
     private readonly IHallRepository _hallRepository;
     private readonly ISeatRepository _seatRepository;
+    private readonly ITicketRepository _ticketRepository;
+    private readonly ITicketCheckinRepository _ticketCheckinRepository;
+    private readonly ILogger<EventService> _logger;
     private readonly ISpeakerRepository _speakerRepository;
 
     public EventService(
-        IEventRepository eventRepository,
-        ICloudinaryService cloudinaryService,
-        IHallRepository hallRepository,
+        
+        IEventRepository eventRepository, 
+       
+        ICloudinaryService cloudinaryService, 
+       
+        IHallRepository hallRepository, 
+       
         ISeatRepository seatRepository,
-        ISpeakerRepository speakerRepository)
+        ISpeakerRepository speakerRepository,
+        ITicketRepository ticketRepository,
+        ITicketCheckinRepository ticketCheckinRepository,
+        ILogger<EventService> logger)
     {
         _eventRepository = eventRepository;
         _cloudinaryService = cloudinaryService;
         _hallRepository = hallRepository;
         _seatRepository = seatRepository;
+        _ticketRepository = ticketRepository;
+        _ticketCheckinRepository = ticketCheckinRepository;
+        _logger = logger;
         _speakerRepository = speakerRepository;
     }
 
@@ -677,6 +691,108 @@ public class EventService : IEventService
 
         await _seatRepository.AddRangeAsync(seats);
         await _seatRepository.SaveChangesAsync();
+    }
+
+    public async Task<ApiResponse<EventStatisticsDto>> GetEventStatisticsAsync(string eventId)
+    {
+        try
+        {
+            _logger.LogInformation("Getting statistics for event: {EventId}", eventId);
+
+            // Get event with relations
+            var eventEntity = await _eventRepository.GetByIdAsync(eventId, includeRelations: true);
+            
+            if (eventEntity == null)
+            {
+                _logger.LogWarning("Event not found: {EventId}", eventId);
+                return ApiResponse<EventStatisticsDto>.FailureResponse("Không tìm thấy sự kiện");
+            }
+
+            // Get all tickets for this event
+            var allTickets = await _ticketRepository.GetByEventIdAsync(eventId);
+            
+            // Get check-in records - use GetByTicketIdAsync for each ticket
+            var checkIns = new List<TicketCheckin>();
+            foreach (var ticket in allTickets)
+            {
+                var ticketCheckIns = await _ticketCheckinRepository.GetByTicketIdAsync(ticket.TicketId);
+                checkIns.AddRange(ticketCheckIns);
+            }
+            
+            _logger.LogInformation("Event {EventId}: {TicketCount} tickets, {CheckInCount} check-ins", 
+                eventId, allTickets.Count, checkIns.Count);
+
+            // Get recent check-ins (last 10)
+            var recentCheckIns = checkIns
+                .OrderByDescending(c => c.CheckinTime)
+                .Take(10)
+                .Select(c =>
+                {
+                    var ticket = allTickets.FirstOrDefault(t => t.TicketId == c.TicketId);
+                    var seat = ticket?.Seat;
+                    
+                    return new RecentCheckInDto
+                    {
+                        AttendeeName = ticket?.Student?.Name ?? "Unknown",
+                        TicketCode = ticket?.TicketCode ?? "N/A",
+                        SeatNumber = seat?.SeatNumber ?? "-",
+                        CheckInTime = c.CheckinTime,
+                        Status = checkIns.Count(ch => ch.TicketId == ticket?.TicketId) > 1 ? "Already Used" : "Entered"
+                    };
+                })
+                .ToList();
+
+            // Calculate statistics
+            var registeredCount = allTickets.Count(t => t.Status == "active");
+            var checkedInCount = checkIns.Count();
+            var checkInRate = registeredCount > 0 
+                ? Math.Round((double)checkedInCount / registeredCount * 100, 1) 
+                : 0;
+
+            // Map speakers
+            var speakers = eventEntity.EventSpeakers?
+                .Select(es => new IntervalEventRegistrationService.DTOs.Response.SpeakerSimpleDto
+                {
+                    SpeakerId = es.Speaker?.SpeakerId ?? string.Empty,
+                    Name = es.Speaker?.Name ?? string.Empty,
+                    Title = es.Speaker?.Title,
+                    Organization = es.Speaker?.Company,
+                    ImageUrl = es.Speaker?.AvatarUrl
+                })
+                .ToList();
+
+            var statistics = new EventStatisticsDto
+            {
+                EventId = eventEntity.EventId,
+                Title = eventEntity.Title,
+                Description = eventEntity.Description,
+                Date = eventEntity.Date,
+                StartTime = eventEntity.StartTime,
+                EndTime = eventEntity.EndTime,
+                Location = eventEntity.Location,
+                ImageUrl = eventEntity.ImageUrl,
+                Status = eventEntity.Status,
+                TotalSeats = eventEntity.TotalSeats,
+                RegisteredCount = registeredCount,
+                CheckedInCount = checkedInCount,
+                CheckInRate = checkInRate,
+                Speakers = speakers,
+                RecentCheckIns = recentCheckIns
+            };
+
+            _logger.LogInformation("Statistics generated for event {EventId}: {CheckInRate}% check-in rate", 
+                eventId, checkInRate);
+
+            return ApiResponse<EventStatisticsDto>.SuccessResponse(
+                statistics, 
+                "Lấy thống kê sự kiện thành công");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting event statistics for {EventId}", eventId);
+            return ApiResponse<EventStatisticsDto>.FailureResponse(
+                $"Lỗi khi lấy thống kê: {ex.Message}");
+        }
     }
 
     private string GetRowLabel(int rowNumber)
