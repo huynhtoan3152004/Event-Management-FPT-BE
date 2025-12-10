@@ -163,30 +163,59 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // ==================================================================
-// 6. ✅ CORS CONFIGURATION (Cấu hình cho Production)
+// 6. ✅ CORS CONFIGURATION (Đọc từ Environment Variable)
 // ==================================================================
+
+// Đọc CORS từ environment variable hoặc appsettings.json
+var corsOriginsConfig = builder.Configuration["CORS:AllowedOrigins"];
+var allowedOrigins = new List<string>
+{
+    "http://localhost:3000",  // Default local dev
+    "http://localhost:3001"   // Default local dev alternate port
+};
+
+// Parse từ environment variable (format: url1,url2,url3)
+if (!string.IsNullOrEmpty(corsOriginsConfig))
+{
+    var parsedOrigins = corsOriginsConfig
+        .Split(',', StringSplitOptions.RemoveEmptyEntries)
+        .Select(o => o.Trim())
+        .Where(o => !string.IsNullOrEmpty(o))
+        .ToList();
+    
+    allowedOrigins.AddRange(parsedOrigins);
+}
+
+// Remove duplicates
+allowedOrigins = allowedOrigins.Distinct().ToList();
+
+// Log allowed origins for debugging
+Console.WriteLine("🌐 CORS Allowed Origins:");
+foreach (var origin in allowedOrigins)
+{
+    Console.WriteLine($"   ✓ {origin}");
+}
+
 builder.Services.AddCors(options =>
 {
-    // Policy cho Production
+    // Policy cho Production (đọc từ env)
     options.AddPolicy("AllowFrontend", policy =>
     {
         policy
-            .WithOrigins(
-                "http://localhost:3000",                                        // Local dev
-                "https://eventfptticket.14.225.231.92.sslip.io",              // Frontend domain
-                "https://s4kc4gkkkc4ssko484sscow8.14.225.231.92.sslip.io"    // Backend domain (cho Swagger test)
-            )
+            .WithOrigins(allowedOrigins.ToArray())
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials(); // Cho phép gửi cookies/JWT
+            .AllowCredentials()
+            .SetIsOriginAllowedToAllowWildcardSubdomains(); // Cho phép wildcard nếu cần
     });
 
     // Policy cho Development (Allow all)
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.SetIsOriginAllowed(_ => true) // Allow any origin
               .AllowAnyMethod()
-              .AllowAnyHeader();
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 
@@ -197,7 +226,11 @@ var app = builder.Build();
 // ==================================================================
 
 // Health check endpoint (cho Docker HEALTHCHECK)
-app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+app.MapGet("/health", () => Results.Ok(new { 
+    status = "healthy", 
+    timestamp = DateTime.UtcNow,
+    allowedOrigins = allowedOrigins // Debug info
+}));
 
 // ✅ ENABLE SWAGGER CHO TẤT CẢ ENVIRONMENTS
 app.UseSwagger();
@@ -209,17 +242,10 @@ app.UseSwaggerUI(options =>
 
 app.UseHttpsRedirection();
 
-// ✅ SỬ DỤNG CORS DỰA TRÊN ENVIRONMENT
-if (app.Environment.IsDevelopment())
-{
-    app.UseCors("AllowAll"); // Dev: cho phép tất cả để test dễ dàng
-    app.Logger.LogInformation("🔓 CORS: AllowAll policy enabled (Development)");
-}
-else
-{
-    app.UseCors("AllowFrontend"); // Production: chỉ cho phép frontend cụ thể
-    app.Logger.LogInformation("🔒 CORS: AllowFrontend policy enabled (Production)");
-}
+// ✅ LUÔN DÙNG AllowFrontend (đã đọc từ env)
+app.UseCors("AllowFrontend");
+app.Logger.LogInformation("🔒 CORS: AllowFrontend policy enabled");
+app.Logger.LogInformation("🌐 Allowed origins: {Origins}", string.Join(", ", allowedOrigins));
 
 app.UseAuthentication(); // Đăng nhập
 app.UseAuthorization();  // Phân quyền
