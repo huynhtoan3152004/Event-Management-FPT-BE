@@ -7,6 +7,7 @@ using IntervalEventRegistrationService.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -246,5 +247,54 @@ namespace IntervalEventRegistrationService.Services
 
             return dto;                                                        // Trả về DTO profile cho user hiện tại
         }
+        public async Task<UserDetailDto> CreateUserAsync(CreateUserRequest request)
+        {
+            if (request.RoleId != "organizer" && request.RoleId != "staff")     // Kiểm tra roleId, chỉ cho phép tạo user với role organizer hoặc staff
+            {
+                throw new ArgumentException("Role của user phải là 'organizer' hoặc 'staff'."); // Ném exception nếu role không hợp lệ
+            }
+
+            var emailNormalized = request.Email.Trim().ToLower();               // Chuẩn hóa email: cắt khoảng trắng và chuyển về chữ thường để check trùng
+
+            var existingUser = await _userRepository.GetByEmailAsync(emailNormalized); // Gọi repository tìm xem email đã tồn tại chưa
+
+            if (existingUser != null)                                           // Nếu đã tồn tại user với email này
+            {
+                throw new ArgumentException("Email đã tồn tại trong hệ thống."); // Ném exception báo lỗi trùng email
+            }
+
+            var passwordHash = HashPassword(request.Password);                      // Hash mật khẩu plaintext thành chuỗi passwordHash để lưu vào DB
+
+            var user = new User                                                 // Tạo mới một entity User
+            {
+                UserId = Guid.NewGuid().ToString(),                             // Sinh một Guid mới làm UserId
+                RoleId = request.RoleId,                                        // Gán RoleId cho user theo request
+                Name = request.Name,                                            // Gán Name cho user theo request
+                Email = emailNormalized,                                        // Gán Email đã chuẩn hóa chữ thường cho user
+                PasswordHash = passwordHash,                                    // Gán PasswordHash đã hash bằng SHA256
+                Status = "active",                                              // Mặc định trạng thái user mới là active
+                Organization = request.Organization,                            // Gán Organization nếu Admin cung cấp
+                Department = request.Department,                                // Gán Department nếu Admin cung cấp
+                EmailVerified = false,                                          // Mặc định email chưa được xác thực
+                IsDeleted = false,                                              // Đảm bảo user mới không bị đánh dấu xóa
+                CreatedAt = DateTime.UtcNow,                                    // Gán thời điểm tạo là hiện tại (UTC)
+                UpdatedAt = null                                                // Chưa có lần cập nhật nào nên để null
+            };
+
+            await _userRepository.AddAsync(user);                               // Thêm entity user mới vào DbContext thông qua repository
+
+            await _userRepository.SaveChangesAsync();                           // Lưu thay đổi xuống database để thực sự tạo user mới
+
+            var dto = MapToUserDetailDto(user);                                 // Map entity user mới sang DTO UserDetailDto
+
+            return dto;                                                         // Trả về DTO chi tiết user vừa được tạo cho controller admin
+        }
+
+        private string HashPassword(string password)                               // Hàm helper nhận mật khẩu dạng plaintext và trả về chuỗi hash an toàn để lưu DB
+        {
+            var hash = BCrypt.Net.BCrypt.HashPassword(password);                  // Dùng thư viện BCrypt.Net-Next tạo password hash kèm salt ngẫu nhiên, chống rainbow-table
+            return hash;                                                          // Trả về chuỗi hash đã được BCrypt xử lý để gán vào PasswordHash của User
+        }
+
     }
 }

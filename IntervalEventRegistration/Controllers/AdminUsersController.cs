@@ -136,5 +136,43 @@ namespace IntervalEventRegistration.Controllers
                 return NotFound(response);                                  // Trả về HTTP 404 nếu không tìm thấy user để đổi role
             }
         }
+
+        [HttpPost("create-user")]         // Định nghĩa endpoint POST /api/admin/users để tạo mới tài khoản organizer/staff
+        [Consumes("multipart/form-data")]                                    // Thông báo cho Swagger/ASP.NET Core biết request body sẽ ở dạng multipart/form-data (giống màn /api/Events anh chụp)
+        public async Task<IActionResult> CreateUser([FromForm] CreateUserRequest request) // Bind dữ liệu từ form-data (các field Email, Name, Password...) vào DTO CreateUserRequest thay vì đọc JSON
+        {
+            if (!ModelState.IsValid)                                         // Kiểm tra validate các field bắt buộc (Email, Name, Password, ConfirmPassword, RoleId) bằng DataAnnotations trong DTO
+            {
+                var errors = ModelState.Values                               // Lấy toàn bộ giá trị trong ModelState để tổng hợp lỗi
+                    .SelectMany(v => v.Errors)                               // Trải phẳng danh sách lỗi trên từng field
+                    .Select(e => e.ErrorMessage)                             // Lấy ra message mô tả của từng lỗi riêng lẻ
+                    .ToList();                                               // Chuyển thành List<string> để đưa vào ApiResponse
+
+                var errorResponse = ApiResponse<UserDetailDto>.FailureResponse( // Tạo response lỗi chuẩn, gói danh sách lỗi validate cho FE hiển thị
+                    "Dữ liệu tạo tài khoản không hợp lệ.",                   // Thông điệp tổng quát mô tả lý do request bị reject
+                    errors);                                                 // Danh sách chi tiết từng lỗi validate để tiện debug
+
+                return BadRequest(errorResponse);                            // Trả về HTTP 400 kèm body mô tả lỗi cho client
+            }
+
+            try                                                              // Bọc logic chính trong try/catch để bắt các lỗi nghiệp vụ từ service (như email đã tồn tại, role sai...)
+            {
+                var newUser = await _userService.CreateUserAsync(request);   // Gọi tầng service tạo user mới (organizer/staff) với thông tin nhận từ form-data
+
+                var response = ApiResponse<UserDetailDto>.SuccessResponse(   // Tạo response thành công, gói DTO chi tiết user mới tạo
+                    newUser,                                                 // Gán data là user vừa được tạo xong
+                    "Tạo tài khoản user mới thành công.");                   // Message thông báo cho FE biết thao tác tạo user đã ok
+
+                return Ok(response);                                         // Trả về HTTP 200 với body chứa thông tin user mới cho FE
+            }
+            catch (ArgumentException ex)                                     // Bắt lỗi nghiệp vụ như email đã tồn tại hoặc role không hợp lệ do service ném ra
+            {
+                var response = ApiResponse<UserDetailDto>.FailureResponse(   // Tạo response lỗi chuẩn cho client
+                    ex.Message);                                             // Dùng message từ exception để giải thích nguyên nhân cụ thể
+
+                return BadRequest(response);                                 // Trả về HTTP 400 khi dữ liệu logic không hợp lệ (mặc dù format đã đúng)
+            }
+        }
+
     }
 }

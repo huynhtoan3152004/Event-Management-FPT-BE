@@ -22,5 +22,6 @@ namespace IntervalEventRegistrationService.Interfaces
         Task<UserDetailDto> UpdateUserStatusAsync(string userId, UpdateUserStatusRequest request); // Admin cập nhật trạng thái (status) cho một user và trả lại thông tin chi tiết
 
         Task<UserDetailDto> UpdateUserRoleAsync(string userId, UpdateUserRoleRequest request); // Admin đổi role cho một user và trả lại thông tin chi tiết
+        Task<UserDetailDto> CreateUserAsync(CreateUserRequest request);
     }
 }

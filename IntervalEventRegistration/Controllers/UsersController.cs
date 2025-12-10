@@ -20,7 +20,7 @@ namespace IntervalEventRegistration.Controllers
             _userService = userService;
         }
 
-        [HttpGet("me")] // Định nghĩa action này phản hồi cho HTTP GET tới endpoint /api/users/me
+        [HttpGet("profile")] // Định nghĩa action này phản hồi cho HTTP GET tới endpoint /api/users/me
         [Authorize] // Yêu cầu request phải có JWT hợp lệ (đã đăng nhập) mới được phép truy cập vào action này
         public async Task<IActionResult> GetMyProfile()
         {
@@ -55,7 +55,7 @@ namespace IntervalEventRegistration.Controllers
             }
         }
 
-        [HttpPut("me")] // Định nghĩa action này xử lý HTTP PUT tới endpoint /api/users/me để cập nhật profile của user hiện tại
+        [HttpPut("profile")] // Định nghĩa action này xử lý HTTP PUT tới endpoint /api/users/me để cập nhật profile của user hiện tại
         [Authorize] // Bắt buộc user phải đăng nhập (có JWT hợp lệ) mới được phép gọi API cập nhật profile
         public async Task<IActionResult> UpdateMyProfile([FromBody] UpdateMyProfileRequest request)
         {
