@@ -771,21 +771,31 @@ public class EventService : IEventService
                 {
                     var ticket = allTickets.FirstOrDefault(t => t.TicketId == c.TicketId);
                     var seat = ticket?.Seat;
+                    var student = ticket?.Student;
+                    
+                    // Get ticket status display
+                    string statusDisplay = ticket?.Status switch
+                    {
+                        "active" => "Đã đăng ký",
+                        "used" => "Đã sử dụng",
+                        "cancelled" => "Đã hủy",
+                        _ => "Không xác định"
+                    };
                     
                     return new RecentCheckInDto
                     {
-                        AttendeeName = ticket?.Student?.Name ?? "Unknown",
+                        AttendeeName = student?.Name ?? "Unknown",
                         TicketCode = ticket?.TicketCode ?? "N/A",
                         SeatNumber = seat?.SeatNumber ?? "-",
                         CheckInTime = c.CheckinTime,
-                        Status = checkIns.Count(ch => ch.TicketId == ticket?.TicketId) > 1 ? "Already Used" : "Entered"
+                        Status = statusDisplay
                     };
                 })
                 .ToList();
 
             // Calculate statistics
-            var registeredCount = allTickets.Count(t => t.Status == "active");
-            var checkedInCount = checkIns.Count();
+            var registeredCount = allTickets.Count(t => t.Status == "active" || t.Status == "used");
+            var checkedInCount = allTickets.Count(t => t.Status == "used");
             var checkInRate = registeredCount > 0 
                 ? Math.Round((double)checkedInCount / registeredCount * 100, 1) 
                 : 0;
