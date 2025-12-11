@@ -33,6 +33,6 @@ namespace IntervalEventRegistrationService.Configuration
         /// Thời gian sống (phút) của Access Token.
         /// Ví dụ: 60 phút.
         /// </summary>
-        public int AccessTokenMinutes { get; set; } = 60;
+        public int AccessTokenMinutes { get; set; } = 240;
     }
 }
