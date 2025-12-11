@@ -60,6 +60,7 @@ builder.Services.AddScoped<IHallRepository, HallRepository>();
 builder.Services.AddScoped<ISeatRepository, SeatRepository>();
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 builder.Services.AddScoped<ITicketCheckinRepository, TicketCheckinRepository>();
+builder.Services.AddScoped<IReportRepository, ReportRepository>();
 
 builder.Services.AddScoped<ICloudinaryService, CloudinaryService>();
 builder.Services.AddScoped<ISpeakerService, SpeakerService>();
@@ -68,6 +69,8 @@ builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<IHallService, HallService>();
 builder.Services.AddScoped<ITicketService, TicketService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IReportService, ReportService>();
+
 
 builder.Services.AddControllers();
 
