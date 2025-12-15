@@ -90,10 +90,11 @@ public class SeatsController : ControllerBase
     }
 
     /// <summary>
-    /// Get available seats for Student registration
+    /// Get all seats for Student registration with real-time status
+    /// Shows all seats: available (green), reserved (yellow), occupied (blue)
     /// </summary>
     /// <param name="eventId">Event ID</param>
-    /// <returns>Available seats only (for seat selection)</returns>
+    /// <returns>All seats with current status (available/reserved/occupied)</returns>
     [HttpGet("events/{eventId}/available-seats")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -101,7 +102,7 @@ public class SeatsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetAvailableSeats(string eventId)
     {
-        _logger.LogInformation("Student getting available seats for event: {EventId}", eventId);
+        _logger.LogInformation("User getting all seats with status for event: {EventId}", eventId);
         
         var result = await _seatService.GetAvailableSeatsForRegistrationAsync(eventId);
         
