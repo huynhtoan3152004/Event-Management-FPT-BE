@@ -258,11 +258,11 @@ public class SeatService : ISeatService
                 );
             }
 
-            // Get only available seats
+            // Get ALL seats with their current status (available, reserved, occupied)
             var filter = new SeatMapFilterRequest
             {
-                Statuses = new List<string> { "available" },
                 IncludeOccupantDetails = false
+                // No Statuses filter - return all seats so students can see which are taken
             };
 
             return await GetEventSeatMapAsync(eventId, null, "student", filter);
