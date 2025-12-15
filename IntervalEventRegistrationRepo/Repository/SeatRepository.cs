@@ -99,4 +99,80 @@ public class SeatRepository : ISeatRepository
     {
         await _context.SaveChangesAsync();
     }
+
+    public async Task<IEnumerable<Seat>> GetSeatsByHallIdAsync(string hallId, bool includeDeleted = false)
+    {
+        var query = _context.Seats
+            .Where(s => s.HallId == hallId);
+        
+        if (!includeDeleted)
+        {
+            query = query.Where(s => !s.IsDeleted);
+        }
+        
+        return await query
+            .OrderBy(s => s.RowLabel)
+            .ThenBy(s => s.SeatNumber)
+            .ToListAsync();
+    }
+
+    public async Task<IEnumerable<Seat>> GetEventSeatMapAsync(string eventId, bool includeOccupant = false)
+    {
+        var query = _context.Seats
+            .Where(s => s.EventId == eventId && !s.IsDeleted);
+        
+        if (includeOccupant)
+        {
+            query = query
+                .Include(s => s.Event)
+                .Include(s => s.Hall);
+        }
+        
+        return await query
+            .OrderBy(s => s.RowLabel)
+            .ThenBy(s => s.SeatNumber)
+            .ToListAsync();
+    }
+
+    public async Task<Dictionary<string, int>> GetSeatStatisticsByEventAsync(string eventId)
+    {
+        var seats = await _context.Seats
+            .Where(s => s.EventId == eventId && !s.IsDeleted)
+            .ToListAsync();
+        
+        return new Dictionary<string, int>
+        {
+            ["total"] = seats.Count,
+            ["available"] = seats.Count(s => s.Status == "available"),
+            ["reserved"] = seats.Count(s => s.Status == "reserved"),
+            ["occupied"] = seats.Count(s => s.Status == "occupied")
+        };
+    }
+
+    public async Task<bool> IsSeatAvailableAsync(string seatId)
+    {
+        var seat = await _context.Seats
+            .Where(s => s.SeatId == seatId && !s.IsDeleted)
+            .Select(s => new { s.Status })
+            .FirstOrDefaultAsync();
+        
+        return seat?.Status == "available";
+    }
+
+    public async Task<Dictionary<int, List<Seat>>> GetSeatsGroupedByRowAsync(string eventId)
+    {
+        var seats = await _context.Seats
+            .Where(s => s.EventId == eventId && !s.IsDeleted)
+            .OrderBy(s => s.RowLabel)
+            .ThenBy(s => s.SeatNumber)
+            .ToListAsync();
+        
+        // Parse row label to get row number (A=1, B=2, etc.)
+        return seats
+            .GroupBy(s => s.RowLabel)
+            .ToDictionary(
+                g => g.Key.Length == 1 ? g.Key[0] - 'A' + 1 : 0,
+                g => g.ToList()
+            );
+    }
 }

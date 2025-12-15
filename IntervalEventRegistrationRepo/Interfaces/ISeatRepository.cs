@@ -15,4 +15,29 @@ public interface ISeatRepository
     Task DeleteAsync(string seatId);
     Task DeleteByEventIdAsync(string eventId);
     Task SaveChangesAsync();
+    
+    /// <summary>
+    /// Get all seats for a Hall (template view)
+    /// </summary>
+    Task<IEnumerable<Seat>> GetSeatsByHallIdAsync(string hallId, bool includeDeleted = false);
+    
+    /// <summary>
+    /// Get seat map for an Event with status and occupant info
+    /// </summary>
+    Task<IEnumerable<Seat>> GetEventSeatMapAsync(string eventId, bool includeOccupant = false);
+    
+    /// <summary>
+    /// Get seat statistics by status for an Event
+    /// </summary>
+    Task<Dictionary<string, int>> GetSeatStatisticsByEventAsync(string eventId);
+    
+    /// <summary>
+    /// Check seat availability in real-time
+    /// </summary>
+    Task<bool> IsSeatAvailableAsync(string seatId);
+    
+    /// <summary>
+    /// Get seats grouped by rows for an Event
+    /// </summary>
+    Task<Dictionary<int, List<Seat>>> GetSeatsGroupedByRowAsync(string eventId);
 }
