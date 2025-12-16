@@ -92,4 +92,26 @@ public class TicketsController : ControllerBase
         var result = await _ticketService.GetByStudentAsync(studentId);
         return Ok(result);
     }
+
+    /// <summary>
+    /// Check-out ticket (student leaving event)
+    /// </summary>
+    [HttpPost("tickets/checkout")]
+    [Authorize(Roles = "staff,organizer")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> CheckOut([FromBody] CheckoutTicketRequest request)
+    {
+        var staffId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
+        var result = await _ticketService.CheckOutAsync(request, staffId);
+
+        if (!result.Success)
+        {
+            return BadRequest(result);
+        }
+
+        return Ok(result);
+    }
 }

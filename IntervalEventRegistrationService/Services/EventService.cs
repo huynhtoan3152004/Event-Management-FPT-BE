@@ -605,15 +605,48 @@ public class EventService : IEventService
         DateTime eventEnd = new DateTime(e.Date.Year, e.Date.Month, e.Date.Day,
             e.EndTime.Hour, e.EndTime.Minute, e.EndTime.Second, DateTimeKind.Utc);
 
-        if ((e.Status == "draft" || e.Status == "pending") && e.RegistrationStart.HasValue && now >= e.RegistrationStart.Value)
+        // 1. Auto-publish when registration starts
+        if ((e.Status == "draft" || e.Status == "pending") && 
+            e.RegistrationStart.HasValue && 
+            now >= e.RegistrationStart.Value)
         {
             e.Status = "published";
             changed = true;
         }
 
-        if (e.Status != "cancelled" && e.Status != "completed" && now >= eventEnd.AddHours(5))
+        // 2. ✨ NEW: Auto-transition to "ongoing" when event starts
+        if (e.Status == "published" && now >= eventStart)
+        {
+            e.Status = "ongoing";
+            changed = true;
+        }
+
+        // 3. ✨ NEW: Auto-complete event AND mark no-show/abandoned tickets
+        if ((e.Status == "published" || e.Status == "ongoing") && 
+            e.Status != "cancelled" && 
+            e.Status != "completed" && 
+            now >= eventEnd.AddHours(5))
         {
             e.Status = "completed";
+            
+            var tickets = await _ticketRepository.GetByEventIdAsync(e.EventId);
+            
+            // ✨ Mark tickets as "no-show" if not checked-in
+            foreach (var ticket in tickets.Where(t => t.Status == "active"))
+            {
+                ticket.Status = "no-show"; // Đã đăng ký nhưng không check-in
+                await _ticketRepository.UpdateAsync(ticket);
+            }
+            
+            // ✨ Mark tickets as "abandoned" if checked-in but NOT checked-out
+            foreach (var ticket in tickets.Where(t => t.Status == "checked-in"))
+            {
+                ticket.Status = "abandoned"; // Check-in nhưng không check-out
+                await _ticketRepository.UpdateAsync(ticket);
+            }
+            
+            // Note: Tickets với status "completed" đã check-out rồi - giữ nguyên
+            
             changed = true;
         }
 
@@ -752,18 +785,50 @@ public class EventService : IEventService
             // Get all tickets for this event
             var allTickets = await _ticketRepository.GetByEventIdAsync(eventId);
             
-            // Get check-in records - use GetByTicketIdAsync for each ticket
-            var checkIns = new List<TicketCheckin>();
-            foreach (var ticket in allTickets)
-            {
-                var ticketCheckIns = await _ticketCheckinRepository.GetByTicketIdAsync(ticket.TicketId);
-                checkIns.AddRange(ticketCheckIns);
-            }
+            // Get check-in records
+            var checkIns = await _ticketCheckinRepository.GetByEventIdAsync(eventId);
             
             _logger.LogInformation("Event {EventId}: {TicketCount} tickets, {CheckInCount} check-ins", 
                 eventId, allTickets.Count, checkIns.Count);
 
-            // Get recent check-ins (last 10)
+            // Calculate statistics
+            var registeredCount = allTickets.Count(t => 
+                t.Status == "active" || 
+                t.Status == "checked-in" || 
+                t.Status == "completed" || 
+                t.Status == "abandoned" || // ✨ Check-in nhưng không check-out
+                t.Status == "no-show");
+            var checkedInCount = checkIns.Count;
+            var checkedOutCount = allTickets.Count(t => t.Status == "completed");
+            var stillInVenueCount = allTickets.Count(t => t.Status == "checked-in"); // Đang tham dự
+            var abandonedCount = allTickets.Count(t => t.Status == "abandoned"); // ✨ Check-in nhưng không check-out
+            
+            var checkInRate = registeredCount > 0 
+                ? Math.Round((double)checkedInCount / registeredCount * 100, 1) 
+                : 0;
+            
+            var checkOutRate = checkedInCount > 0
+                ? Math.Round((double)checkedOutCount / checkedInCount * 100, 1)
+                : 0;
+
+            // Calculate attendance duration statistics
+            var completedCheckIns = checkIns.Where(c => c.CheckoutTime != null).ToList();
+            TimeSpan? avgDuration = null;
+            TimeSpan? minDuration = null;
+            TimeSpan? maxDuration = null;
+
+            if (completedCheckIns.Any())
+            {
+                var durations = completedCheckIns
+                    .Select(c => c.CheckoutTime!.Value - c.CheckinTime)
+                    .ToList();
+
+                avgDuration = TimeSpan.FromSeconds(durations.Average(d => d.TotalSeconds));
+                minDuration = durations.Min();
+                maxDuration = durations.Max();
+            }
+
+            // Get recent check-ins (last 10) with checkout info
             var recentCheckIns = checkIns
                 .OrderByDescending(c => c.CheckinTime)
                 .Take(10)
@@ -773,14 +838,15 @@ public class EventService : IEventService
                     var seat = ticket?.Seat;
                     var student = ticket?.Student;
                     
-                    // Get ticket status display
-                    string statusDisplay = ticket?.Status switch
-                    {
-                        "active" => "Đã đăng ký",
-                        "used" => "Đã sử dụng",
-                        "cancelled" => "Đã hủy",
-                        _ => "Không xác định"
-                    };
+                    // Calculate duration if checked out
+                    TimeSpan? duration = c.CheckoutTime.HasValue 
+                        ? c.CheckoutTime.Value - c.CheckinTime 
+                        : null;
+                    
+                    // Get status display
+                    string statusDisplay = c.CheckoutTime.HasValue 
+                        ? "Đã check-out" 
+                        : "Đang tham dự";
                     
                     return new RecentCheckInDto
                     {
@@ -788,17 +854,12 @@ public class EventService : IEventService
                         TicketCode = ticket?.TicketCode ?? "N/A",
                         SeatNumber = seat?.SeatNumber ?? "-",
                         CheckInTime = c.CheckinTime,
+                        CheckOutTime = c.CheckoutTime,
+                        Duration = duration,
                         Status = statusDisplay
                     };
                 })
                 .ToList();
-
-            // Calculate statistics
-            var registeredCount = allTickets.Count(t => t.Status == "active" || t.Status == "used");
-            var checkedInCount = allTickets.Count(t => t.Status == "used");
-            var checkInRate = registeredCount > 0 
-                ? Math.Round((double)checkedInCount / registeredCount * 100, 1) 
-                : 0;
 
             // Map speakers
             var speakers = eventEntity.EventSpeakers?
@@ -826,13 +887,20 @@ public class EventService : IEventService
                 TotalSeats = eventEntity.TotalSeats,
                 RegisteredCount = registeredCount,
                 CheckedInCount = checkedInCount,
+                CheckedOutCount = checkedOutCount,
+                StillInVenueCount = stillInVenueCount,
                 CheckInRate = checkInRate,
+                CheckOutRate = checkOutRate,
+                AverageAttendanceDuration = avgDuration,
+                MinAttendanceDuration = minDuration,
+                MaxAttendanceDuration = maxDuration,
                 Speakers = speakers,
                 RecentCheckIns = recentCheckIns
             };
 
-            _logger.LogInformation("Statistics generated for event {EventId}: {CheckInRate}% check-in rate", 
-                eventId, checkInRate);
+            _logger.LogInformation(
+                "Statistics for event {EventId}: CheckIn={CheckInRate}%, CheckOut={CheckOutRate}%, StillInVenue={StillInVenue}", 
+                eventId, checkInRate, checkOutRate, stillInVenueCount);
 
             return ApiResponse<EventStatisticsDto>.SuccessResponse(
                 statistics, 

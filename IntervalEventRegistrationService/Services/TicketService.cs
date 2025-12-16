@@ -79,7 +79,7 @@ public class TicketService : ITicketService
                 }
                 seatId = seat.SeatId;
                 seatNumber = seat.SeatNumber;
-                seat.Status = "reserved";
+                seat.Status = "reserved"; // ✨ ĐỔI THÀNH RESERVED KHI BOOK
                 await _seatRepository.UpdateAsync(seat);
                 await _seatRepository.SaveChangesAsync();
             }
@@ -92,7 +92,7 @@ public class TicketService : ITicketService
                 {
                     seatId = availableSeat.SeatId;
                     seatNumber = availableSeat.SeatNumber;
-                    availableSeat.Status = "reserved";
+                    availableSeat.Status = "reserved"; // ✨ ĐỔI THÀNH RESERVED KHI AUTO-ASSIGN
                     await _seatRepository.UpdateAsync(availableSeat);
                     await _seatRepository.SaveChangesAsync();
                 }
@@ -159,18 +159,19 @@ public class TicketService : ITicketService
             return ApiResponse<CheckinResultDto>.FailureResponse("Ticket Not Found");
         }
 
-        ticket.Status = "used";
+        ticket.Status = "checked-in"; // ✨ ĐỔI THÀNH CHECKED-IN
         ticket.CheckInTime = DateTime.UtcNow;
         await _ticketRepository.UpdateAsync(ticket);
         ev.CheckedInCount += 1;
         await _eventRepository.UpdateAsync(ev);
 
+        // ✨ CHECK-IN: RESERVED → OCCUPIED
         if (!string.IsNullOrWhiteSpace(ticket.SeatId))
         {
             var seat = await _seatRepository.GetByIdAsync(ticket.SeatId!);
             if (seat != null)
             {
-                seat.Status = "occupied";
+                seat.Status = "occupied"; // ĐỔI TỪ RESERVED → OCCUPIED
                 await _seatRepository.UpdateAsync(seat);
             }
         }
@@ -284,6 +285,111 @@ public class TicketService : ITicketService
             }
         }
         return ApiResponse<List<TicketDto>>.SuccessResponse(result, "Lấy danh sách vé của người dùng thành công");
+    }
+
+    public async Task<ApiResponse<CheckoutResponseDto>> CheckOutAsync(
+        CheckoutTicketRequest request,
+        string staffId)
+    {
+        try
+        {
+            // 1. Validate QR code and get ticket (use TicketCode as QR code)
+            var ticket = await _ticketRepository.GetByTicketCodeAsync(request.QrCode);
+            
+            if (ticket == null)
+            {
+                return ApiResponse<CheckoutResponseDto>.FailureResponse(
+                    "QR code không hợp lệ hoặc vé không tồn tại."
+                );
+            }
+
+            // 2. Check if ticket has been checked in
+            var activeCheckin = await _ticketCheckinRepository.GetActiveCheckinByTicketIdAsync(ticket.TicketId);
+            
+            if (activeCheckin == null)
+            {
+                return ApiResponse<CheckoutResponseDto>.FailureResponse(
+                    "Vé này chưa được check-in. Không thể check-out."
+                );
+            }
+
+            // 3. Validate event status
+            var eventData = await _eventRepository.GetByIdAsync(ticket.EventId);
+            
+            if (eventData == null)
+            {
+                return ApiResponse<CheckoutResponseDto>.FailureResponse(
+                    "Sự kiện không tồn tại."
+                );
+            }
+
+            // Allow checkout during event or after event ends
+            var now = DateTime.UtcNow;
+            var eventStart = new DateTime(
+                eventData.Date.Year, eventData.Date.Month, eventData.Date.Day,
+                eventData.StartTime.Hour, eventData.StartTime.Minute, eventData.StartTime.Second,
+                DateTimeKind.Utc);
+            
+            if (now < eventStart)
+            {
+                return ApiResponse<CheckoutResponseDto>.FailureResponse(
+                    "Sự kiện chưa bắt đầu. Không thể check-out."
+                );
+            }
+
+            // 4. Update checkout time in TicketCheckin
+            var checkoutTime = DateTime.UtcNow;
+            await _ticketCheckinRepository.UpdateCheckoutTimeAsync(
+                activeCheckin.CheckinId, 
+                checkoutTime, 
+                request.Notes
+            );
+
+            // ✨ ĐỔI TICKET STATUS THÀNH COMPLETED KHI CHECK-OUT
+            ticket.Status = "completed";
+            await _ticketRepository.UpdateAsync(ticket);
+
+            // ✅ GIỮ NGUYÊN seat status = "occupied"
+            // Seat vẫn giữ nguyên để thống kê
+
+            await _ticketRepository.SaveChangesAsync();
+
+            // 5. Calculate duration
+            var duration = checkoutTime - activeCheckin.CheckinTime;
+
+            // 6. Get staff info
+            var staff = activeCheckin.Staff;
+
+            // 7. Build response
+            var response = new CheckoutResponseDto
+            {
+                TicketId = ticket.TicketId,
+                TicketCode = ticket.TicketCode,
+                StudentName = ticket.Student?.Name ?? activeCheckin.Ticket?.Student?.Name ?? "N/A",
+                EventName = eventData.Title,
+                SeatLabel = ticket.Seat != null 
+                    ? $"{ticket.Seat.RowLabel}{ticket.Seat.SeatNumber}" 
+                    : activeCheckin.Ticket?.Seat != null 
+                        ? $"{activeCheckin.Ticket.Seat.RowLabel}{activeCheckin.Ticket.Seat.SeatNumber}"
+                        : "N/A",
+                CheckinTime = activeCheckin.CheckinTime,
+                CheckoutTime = checkoutTime,
+                Duration = duration,
+                CheckedOutBy = staff?.Name ?? "N/A",
+                Message = $"Check-out thành công! Thời gian tham dự: {duration.Hours}h {duration.Minutes}m"
+            };
+
+            return ApiResponse<CheckoutResponseDto>.SuccessResponse(
+                response,
+                "Check-out thành công!"
+            );
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<CheckoutResponseDto>.FailureResponse(
+                $"Đã xảy ra lỗi khi check-out: {ex.Message}"
+            );
+        }
     }
 
     private TicketDto MapToDto(Ticket t, Event ev, string? seatNumber)

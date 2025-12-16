@@ -12,4 +12,9 @@ public interface ITicketService
     Task<ApiResponse<bool>> CancelAsync(string ticketId, string currentUserId, string currentUserRole);
     Task<ApiResponse<List<TicketDto>>> GetByEventAsync(string eventId);
     Task<ApiResponse<List<TicketDto>>> GetByStudentAsync(string studentId);
+    
+    /// <summary>
+    /// Check-out ticket (student leaving event)
+    /// </summary>
+    Task<ApiResponse<CheckoutResponseDto>> CheckOutAsync(CheckoutTicketRequest request, string staffId);
 }

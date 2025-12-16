@@ -16,7 +16,15 @@ public class EventStatisticsDto
     public int TotalSeats { get; set; }
     public int RegisteredCount { get; set; }
     public int CheckedInCount { get; set; }
+    public int CheckedOutCount { get; set; } // ✨ NEW
+    public int StillInVenueCount { get; set; } // ✨ NEW - Checked-in but not checked-out
     public double CheckInRate { get; set; } // Percentage
+    public double CheckOutRate { get; set; } // ✨ NEW - CheckedOut / CheckedIn * 100
+    
+    // ✨ NEW - Attendance duration statistics
+    public TimeSpan? AverageAttendanceDuration { get; set; }
+    public TimeSpan? MinAttendanceDuration { get; set; }
+    public TimeSpan? MaxAttendanceDuration { get; set; }
     
     // Speakers
     public List<SpeakerSimpleDto>? Speakers { get; set; }
@@ -31,5 +39,7 @@ public class RecentCheckInDto
     public string TicketCode { get; set; } = string.Empty;
     public string? SeatNumber { get; set; }
     public DateTime CheckInTime { get; set; }
-    public string Status { get; set; } = string.Empty; // "Entered" or "Already Used"
+    public DateTime? CheckOutTime { get; set; } // ✨ NEW
+    public TimeSpan? Duration { get; set; } // ✨ NEW
+    public string Status { get; set; } = string.Empty; // "Đã đăng ký", "Đã check-in", "Đã check-out"
 }
