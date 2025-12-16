@@ -59,6 +59,7 @@ public class TicketRepository : ITicketRepository
     public async Task<List<Ticket>> GetByStudentIdAsync(string studentId)
     {
         return await _context.Tickets
+            .Include(t => t.Seat) // ✨ Include Seat để lấy SeatNumber
             .Where(t => t.StudentId == studentId && !t.IsDeleted)
             .OrderByDescending(t => t.RegisteredAt)
             .ToListAsync();
