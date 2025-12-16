@@ -175,4 +175,16 @@ public class SeatRepository : ISeatRepository
                 g => g.ToList()
             );
     }
+
+    public async Task<Seat?> GetSeatDetailAsync(string seatId)
+    {
+        return await _context.Seats
+            .Include(s => s.Tickets.Where(t => t.Status != "cancelled"))
+                .ThenInclude(t => t.Student)
+            .Include(s => s.Tickets)
+                .ThenInclude(t => t.TicketCheckins)
+                    .ThenInclude(tc => tc.Staff) // Staff who checked in
+            .Where(s => s.SeatId == seatId && !s.IsDeleted)
+            .FirstOrDefaultAsync();
+    }
 }

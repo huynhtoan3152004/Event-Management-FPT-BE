@@ -40,4 +40,9 @@ public interface ISeatRepository
     /// Get seats grouped by rows for an Event
     /// </summary>
     Task<Dictionary<int, List<Seat>>> GetSeatsGroupedByRowAsync(string eventId);
+    
+    /// <summary>
+    /// Get seat detail with occupant information by seat ID
+    /// </summary>
+    Task<Seat?> GetSeatDetailAsync(string seatId);
 }
