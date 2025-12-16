@@ -425,6 +425,8 @@ public class HallService : IHallService
             Name = hall.Name,
             Location = hall.Address,
             Capacity = hall.Capacity,
+            MaxRows = hall.MaxRows,
+            MaxSeatsPerRow = hall.MaxSeatsPerRow,
             Status = hall.Status,
             TotalSeats = totalSeats,
             CreatedAt = hall.CreatedAt,

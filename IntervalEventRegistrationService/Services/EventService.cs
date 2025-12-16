@@ -316,6 +316,32 @@ public class EventService : IEventService
             return ApiResponse<EventDetailDto>.FailureResponse("Bạn không có quyền chỉnh sửa sự kiện này");
         }
 
+        // ✨ NEW: Validate event status - Cannot update completed/cancelled/ongoing events
+        if (eventEntity.Status == "completed")
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse(
+                "Không thể chỉnh sửa sự kiện đã hoàn thành");
+        }
+
+        if (eventEntity.Status == "cancelled")
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse(
+                "Không thể chỉnh sửa sự kiện đã bị hủy");
+        }
+
+        if (eventEntity.Status == "ongoing")
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse(
+                "Không thể chỉnh sửa sự kiện đang diễn ra");
+        }
+
+        // ✨ Only allow updating draft/published events
+        if (eventEntity.Status != "draft" && eventEntity.Status != "published")
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse(
+                $"Không thể chỉnh sửa sự kiện ở trạng thái '{eventEntity.Status}'");
+        }
+
         // Validate time
         if (request.EndTime <= request.StartTime)
         {
