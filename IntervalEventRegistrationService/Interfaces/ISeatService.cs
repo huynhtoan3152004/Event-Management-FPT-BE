@@ -35,4 +35,13 @@ public interface ISeatService
     /// Get seat statistics summary
     /// </summary>
     Task<ApiResponse<Dictionary<string, int>>> GetSeatStatisticsAsync(string eventId);
+    
+    /// <summary>
+    /// Get detailed information of a specific seat (for Organizer/Staff when clicking on seat)
+    /// </summary>
+    Task<ApiResponse<SeatDetailDto>> GetSeatDetailAsync(
+        string seatId, 
+        string userId, 
+        string userRole
+    );
 }

@@ -54,8 +54,8 @@ public class SeatService : ISeatService
 
             var rows = groupedSeats.Select(group => new HallSeatRowDto
             {
-                RowNumber = GetRowNumberFromLabel(group.Key),
-                RowLabel = group.Key,
+                RowNumber = GetRowNumberFromLabel(group.Key ?? ""),
+                RowLabel = group.Key ?? "",
                 Seats = group.OrderBy(s => s.SeatNumber).Select(seat => new HallSeatItemDto
                 {
                     SeatId = seat.SeatId,
@@ -70,7 +70,7 @@ public class SeatService : ISeatService
             {
                 HallId = hall.HallId,
                 HallName = hall.Name,
-                Location = hall.Address,
+                Location = hall.Address ?? "",
                 Capacity = hall.Capacity,
                 MaxRows = hall.MaxRows,
                 MaxSeatsPerRow = hall.MaxSeatsPerRow,
@@ -360,4 +360,127 @@ public class SeatService : ISeatService
 
         return seatDto;
     }
+
+    public async Task<ApiResponse<SeatDetailDto>> GetSeatDetailAsync(
+        string seatId,
+        string userId,
+        string userRole)
+    {
+        try
+        {
+            _logger.LogInformation(
+                "Getting seat detail: {SeatId}, User: {UserId}, Role: {Role}",
+                seatId, userId, userRole
+            );
+
+            // Validate permissions
+            if (userRole != "organizer" && userRole != "staff")
+            {
+                return ApiResponse<SeatDetailDto>.FailureResponse(
+                    "Bạn không có quyền xem thông tin chi tiết ghế."
+                );
+            }
+
+            // Get seat with full details
+            var seat = await _seatRepo.GetSeatDetailAsync(seatId);
+            
+            if (seat == null)
+            {
+                return ApiResponse<SeatDetailDto>.FailureResponse(
+                    "Không tìm thấy ghế."
+                );
+            }
+
+            // If organizer, check ownership
+            if (userRole == "organizer" && !string.IsNullOrEmpty(seat.EventId))
+            {
+                var eventData = await _eventRepo.GetByIdAsync(seat.EventId);
+                if (eventData?.OrganizerId != userId)
+                {
+                    return ApiResponse<SeatDetailDto>.FailureResponse(
+                        "Bạn chỉ có thể xem thông tin ghế của sự kiện mình tổ chức."
+                    );
+                }
+            }
+
+            // Map to DTO
+            var seatDetail = await MapToSeatDetailDto(seat);
+
+            return ApiResponse<SeatDetailDto>.SuccessResponse(
+                seatDetail,
+                "Lấy thông tin chi tiết ghế thành công."
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting seat detail: {SeatId}", seatId);
+            return ApiResponse<SeatDetailDto>.FailureResponse(
+                "Đã xảy ra lỗi khi lấy thông tin ghế."
+            );
+        }
+    }
+
+    private async Task<SeatDetailDto> MapToSeatDetailDto(IntervalEventRegistrationRepo.Entities.Seat seat)
+    {
+        // Get active ticket for this seat
+        var activeTicket = seat.Tickets?
+            .Where(t => t.Status != "cancelled")
+            .OrderByDescending(t => t.RegisteredAt)
+            .FirstOrDefault();
+
+        var isBooked = activeTicket != null;
+        
+        // Get status display text
+        string statusDisplay = seat.Status switch
+        {
+            "available" => "Còn trống",
+            "reserved" => "Đã đặt",
+            "occupied" => "Đã check-in",
+            _ => "Không xác định"
+        };
+
+        // Generate label from RowLabel + SeatNumber (e.g., A9)
+        string label = $"{seat.RowLabel ?? ""}{seat.SeatNumber}";
+
+        var seatDetail = new SeatDetailDto
+        {
+            SeatId = seat.SeatId,
+            EventId = seat.EventId ?? string.Empty,
+            HallId = seat.HallId,
+            Label = label,
+            RowNumber = GetRowNumberFromLabel(seat.RowLabel ?? ""),
+            SeatNumber = int.TryParse(seat.SeatNumber, out int seatNum) ? seatNum : 0,
+            RowLabel = seat.RowLabel ?? "",
+            Status = seat.Status,
+            StatusDisplay = statusDisplay,
+            IsBooked = isBooked,
+            CreatedAt = seat.CreatedAt,
+            UpdatedAt = seat.UpdatedAt
+        };
+
+        // Add occupant details if seat is booked
+        if (isBooked && activeTicket?.Student != null)
+        {
+            var checkIn = activeTicket.TicketCheckins?.FirstOrDefault();
+            
+            seatDetail.Occupant = new SeatOccupantDetailDto
+            {
+                StudentId = activeTicket.StudentId,
+                StudentName = activeTicket.Student.Name ?? "N/A",
+                StudentCode = activeTicket.Student.StudentCode ?? "N/A",
+                Email = activeTicket.Student.Email ?? "N/A",
+                Phone = activeTicket.Student.Phone,
+                TicketId = activeTicket.TicketId,
+                TicketCode = activeTicket.TicketCode,
+                TicketStatus = activeTicket.Status,
+                RegisteredAt = activeTicket.RegisteredAt,
+                IsCheckedIn = checkIn != null,
+                CheckInTime = checkIn?.CheckinTime,
+                CheckedInBy = checkIn?.Staff?.Name
+            };
+        }
+
+        return seatDetail;
+    }
 }
+

@@ -193,4 +193,37 @@ public class SeatsController : ControllerBase
 
         return Ok(result);
     }
+
+    /// <summary>
+    /// Get detailed information of a specific seat (when Organizer/Staff clicks on a seat)
+    /// Returns: Seat name (A9), current status, occupant details (if booked)
+    /// </summary>
+    /// <param name="seatId">Seat ID</param>
+    /// <returns>Full seat details with occupant information</returns>
+    [HttpGet("{seatId}")]
+    [Authorize(Roles = "organizer,staff")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetSeatDetail(string seatId)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var userRole = User.FindFirstValue(ClaimTypes.Role)!;
+
+        _logger.LogInformation(
+            "{Role} getting detail for seat: {SeatId}",
+            userRole, seatId
+        );
+
+        var result = await _seatService.GetSeatDetailAsync(seatId, userId, userRole);
+
+        if (!result.Success)
+        {
+            return result.Message.Contains("không có quyền")
+                ? Forbid()
+                : NotFound(result);
+        }
+
+        return Ok(result);
+    }
 }
