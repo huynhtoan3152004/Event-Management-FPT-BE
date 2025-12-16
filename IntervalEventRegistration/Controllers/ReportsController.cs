@@ -73,7 +73,7 @@ namespace IntervalEventRegistration.Controllers
             }
         }
 
-        [HttpGet("system-summary")]
+        [HttpGet("system")]
         [Authorize(Roles = "organizer")]
         public async Task<IActionResult> GetSystemSummary([FromQuery] SystemLevelReportFilterRequest request)
         {
@@ -115,6 +115,63 @@ namespace IntervalEventRegistration.Controllers
 
                 ApiResponse<SystemLevelReportDto> errorResponse = ApiResponse<SystemLevelReportDto>.FailureResponse("Đã xảy ra lỗi khi tạo báo cáo toàn hệ thống"); // Tạo ApiResponse lỗi với message thân thiện
                 return StatusCode(500, errorResponse); // Trả về HTTP 500 Internal Server Error kèm body lỗi chuẩn
+            }
+        }
+
+        [HttpGet("system-summary")] // GET api/reports/system-summary
+        [Authorize(Roles = "organizer")]
+        public async Task<IActionResult> GetSystemSummary([FromQuery] string? fromDate, [FromQuery] string? toDate, CancellationToken cancellationToken) // Nhận filter từ query string
+        {
+            try // Bọc try để log lỗi controller
+            {
+                var result = await _reportService.GetSystemReportAsync(fromDate, toDate, cancellationToken); // Gọi service để lấy report tổng hợp
+
+                if (!result.Success) return BadRequest(result); // Nếu validate fail thì trả 400
+
+                return Ok(result); // Nếu ok thì trả 200
+            }
+            catch (Exception ex) // Bắt exception để log
+            {
+                _logger.LogError(ex, "GetSystemSummary failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi controller
+                return StatusCode(500, new { message = "Lỗi hệ thống" }); // Trả 500 khi có lỗi ngoài dự kiến
+            }
+        }
+
+        [HttpGet("monthly")] // GET api/reports/monthly
+        [Authorize(Roles = "organizer")]
+        public async Task<IActionResult> GetMonthly([FromQuery] string? fromDate, [FromQuery] string? toDate, CancellationToken cancellationToken) // Nhận filter từ query string
+        {
+            try // Bọc try để log lỗi controller
+            {
+                var result = await _reportService.GetMonthlyReportAsync(fromDate, toDate, cancellationToken); // Gọi service để lấy report theo tháng
+
+                if (!result.Success) return BadRequest(result); // Nếu validate fail thì trả 400
+
+                return Ok(result); // Nếu ok thì trả 200
+            }
+            catch (Exception ex) // Bắt exception để log
+            {
+                _logger.LogError(ex, "GetMonthly failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi controller
+                return StatusCode(500, new { message = "Lỗi hệ thống" }); // Trả 500 khi có lỗi ngoài dự kiến
+            }
+        }
+
+        [HttpGet("ListEvents")] // GET api/reports/events
+        [Authorize(Roles = "organizer")]
+        public async Task<IActionResult> GetEvents([FromQuery] string? fromDate, [FromQuery] string? toDate, CancellationToken cancellationToken) // Nhận filter từ query string
+        {
+            try // Bọc try để log lỗi controller
+            {
+                var result = await _reportService.GetEventsReportAsync(fromDate, toDate, cancellationToken); // Gọi service để lấy danh sách event report
+
+                if (!result.Success) return BadRequest(result); // Nếu validate fail thì trả 400
+
+                return Ok(result); // Nếu ok thì trả 200
+            }
+            catch (Exception ex) // Bắt exception để log
+            {
+                _logger.LogError(ex, "GetEvents failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi controller
+                return StatusCode(500, new { message = "Lỗi hệ thống" }); // Trả 500 khi có lỗi ngoài dự kiến
             }
         }
     }

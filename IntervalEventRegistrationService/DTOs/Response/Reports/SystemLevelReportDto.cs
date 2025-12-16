@@ -25,6 +25,8 @@ namespace IntervalEventRegistrationService.DTOs.Response.Reports
 
         // Danh sách thống kê số lượng người tham dự theo từng tháng
         public List<MonthlyAttendanceDto> AttendanceByMonth { get; set; } = new();
+        public Dictionary<string, int> TicketStatusSummary { get; set; } = new(); // thống kê số lượng vé theo từng trạng thái trên toàn hệ thống (động từ DB), sau khi áp dụng filter from-to + eventStatus
+
     }
 
     public class MonthlyEventsDto
