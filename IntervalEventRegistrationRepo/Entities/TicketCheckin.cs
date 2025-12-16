@@ -22,9 +22,12 @@ public class TicketCheckin
     [Column("checkin_time")]
     public DateTime CheckinTime { get; set; } = DateTime.UtcNow;
 
+    [Column("checkout_time")]
+    public DateTime? CheckoutTime { get; set; }
+
     [Column("status")]
     [StringLength(20)]
-    public string Status { get; set; } = "success"; // success, failed
+    public string Status { get; set; } = "checked-in"; // checked-in, checked-out
 
     [Column("notes")]
     public string? Notes { get; set; }
