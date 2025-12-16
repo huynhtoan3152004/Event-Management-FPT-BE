@@ -2,6 +2,8 @@ namespace IntervalEventRegistrationService.DTOs.Response.Hall;
 
 public class HallDetailDto : HallListItemDto
 {
+    public int MaxRows { get; set; }
+    public int MaxSeatsPerRow { get; set; }
     public string? Facilities { get; set; }
     public FacilitiesDto? FacilitiesParsed { get; set; } // Parse JSON
     public List<SeatDto> Seats { get; set; } = new();
