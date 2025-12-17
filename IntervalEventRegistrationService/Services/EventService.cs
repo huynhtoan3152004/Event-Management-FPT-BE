@@ -603,7 +603,7 @@ public class EventService : IEventService
         // ✅ Validate cancel time (48 hours before event)
         var eventStartUtc = new DateTime(
             eventEntity.Date.Year, eventEntity.Date.Month, eventEntity.Date.Day,
-            eventEntity.StartTime.Hours, eventEntity.StartTime.Minutes, eventEntity.StartTime.Seconds, 
+            eventEntity.StartTime.Hour, eventEntity.StartTime.Minute, eventEntity.StartTime.Second, 
             DateTimeKind.Utc
         );
         var now = DateTime.UtcNow;

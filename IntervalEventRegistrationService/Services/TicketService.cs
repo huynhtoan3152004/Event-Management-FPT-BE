@@ -256,7 +256,7 @@ public class TicketService : ITicketService
         {
             var eventStartUtc = new DateTime(
                 ev.Date.Year, ev.Date.Month, ev.Date.Day,
-                ev.StartTime.Hours, ev.StartTime.Minutes, ev.StartTime.Seconds, 
+                ev.StartTime.Hour, ev.StartTime.Minute, ev.StartTime.Second, 
                 DateTimeKind.Utc
             );
             
