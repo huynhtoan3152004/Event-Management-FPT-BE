@@ -4,8 +4,10 @@ using IntervalEventRegistrationService.DTOs.Common;
 using IntervalEventRegistrationService.DTOs.Request.Reports;
 using IntervalEventRegistrationService.DTOs.Response.Reports;
 using IntervalEventRegistrationService.Interfaces;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -15,10 +17,177 @@ namespace IntervalEventRegistrationService.Services
     public class ReportService : IReportService
     {
         private readonly IReportRepository _reportRepository;
+        private readonly ILogger<ReportService> _logger;
 
-        public ReportService(IReportRepository reportRepository)
+        public ReportService(IReportRepository reportRepository, ILogger<ReportService> logger)
         {
             _reportRepository = reportRepository;
+            _logger = logger;
+        }
+
+        public async Task<ApiResponse<SystemReportResponse>> GetSystemReportAsync(string? fromDate, string? toDate, CancellationToken cancellationToken = default) // Service xử lý report tổng hợp
+        {
+            try // Bọc try để log lỗi runtime
+            {
+                var errors = new List<string>(); // Tạo list để gom lỗi validate
+
+                DateOnly? from = TryParseDateOnly(fromDate, "fromDate", errors); // Parse fromDate (nullable)
+                DateOnly? to = TryParseDateOnly(toDate, "toDate", errors); // Parse toDate (nullable)
+
+                if (errors.Count > 0) // Nếu có lỗi parse/validate format
+                {
+                    _logger.LogWarning("GetSystemReportAsync validation failed. Errors={Errors}", string.Join(" | ", errors)); // Log cảnh báo validate
+                    return ApiResponse<SystemReportResponse>.FailureResponse("Dữ liệu không hợp lệ", errors); // Trả về lỗi 400 ở controller
+                }
+
+                if (from.HasValue && to.HasValue && from.Value > to.Value) // Validate logic from <= to
+                {
+                    errors.Add("fromDate phải nhỏ hơn hoặc bằng toDate (định dạng yyyy-MM-dd)."); // Thêm lỗi vào danh sách
+                    _logger.LogWarning("GetSystemReportAsync date range invalid. from={From}, to={To}", from, to); // Log cảnh báo date range
+                    return ApiResponse<SystemReportResponse>.FailureResponse("Dữ liệu không hợp lệ", errors); // Trả về lỗi
+                }
+
+                int totalEvents = await _reportRepository.CountEventsByEventDateAsync(from, to, cancellationToken); // Đếm tổng event trong khoảng ngày
+                int totalTickets = await _reportRepository.CountTicketsByEventDateAsync(from, to, cancellationToken); // Đếm tổng ticket trong khoảng ngày
+                int participated = await _reportRepository.CountParticipatedTicketsByEventDateAsync(from, to, cancellationToken); // Đếm tổng tham gia theo status fix cứng
+
+                int notParticipated = totalTickets - participated; // Tính không tham gia bằng cách lấy tổng trừ tham gia
+                if (notParticipated < 0) notParticipated = 0; // Chặn âm phòng trường hợp dữ liệu lệch
+
+                double participatedPercent = totalTickets == 0 ? 0 : (double)participated * 100 / totalTickets; // Tính % tham gia (chia 0 thì =0)
+                double notParticipatedPercent = totalTickets == 0 ? 0 : (double)notParticipated * 100 / totalTickets; // Tính % không tham gia
+
+                int abandoned = await _reportRepository.CountAbandonedTicketsByEventDateAsync(from, to, cancellationToken); // Đếm abandoned theo khoảng ngày
+
+                var response = new SystemReportResponse // Tạo DTO response trả về API
+                {
+                    TotalEvents = totalEvents, // Gán tổng event
+                    TotalRegistrations = totalTickets, // Gán tổng đăng ký
+                    ParticipatedCount = participated, // Gán số tham gia
+                    NotParticipatedCount = notParticipated, // Gán số không tham gia
+                    ParticipatedPercent = Math.Round(participatedPercent, 2), // Làm tròn % tham gia
+                    NotParticipatedPercent = Math.Round(notParticipatedPercent, 2), // Làm tròn % không tham gia
+                    AbandonedCount = abandoned // Gán số check-in chưa check-out
+                };
+
+
+                return ApiResponse<SystemReportResponse>.SuccessResponse(response, "Thành công"); // Trả về success
+            }
+            catch (Exception ex) // Bắt lỗi hệ thống để log
+            {
+                _logger.LogError(ex, "GetSystemReportAsync failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi kèm input
+                return ApiResponse<SystemReportResponse>.FailureResponse("Lỗi hệ thống", new List<string> { "Có lỗi xảy ra khi tạo báo cáo." }); // Trả về lỗi chung
+            }
+        }
+
+        public async Task<ApiResponse<List<MonthlyReportItemResponse>>> GetMonthlyReportAsync(string? fromDate, string? toDate, CancellationToken cancellationToken = default) // Service xử lý report theo tháng
+        {
+            try // Bọc try để log lỗi runtime
+            {
+                var errors = new List<string>(); // Tạo list gom lỗi validate
+
+                DateOnly? from = TryParseDateOnly(fromDate, "fromDate", errors); // Parse fromDate
+                DateOnly? to = TryParseDateOnly(toDate, "toDate", errors); // Parse toDate
+
+                if (errors.Count > 0) // Nếu có lỗi format
+                {
+                    _logger.LogWarning("GetMonthlyReportAsync validation failed. Errors={Errors}", string.Join(" | ", errors)); // Log validate
+                    return ApiResponse<List<MonthlyReportItemResponse>>.FailureResponse("Dữ liệu không hợp lệ", errors); // Trả về lỗi
+                }
+
+                if (from.HasValue && to.HasValue && from.Value > to.Value) // Validate range
+                {
+                    errors.Add("fromDate phải nhỏ hơn hoặc bằng toDate (định dạng yyyy-MM-dd)."); // Thêm lỗi
+                    _logger.LogWarning("GetMonthlyReportAsync date range invalid. from={From}, to={To}", from, to); // Log cảnh báo
+                    return ApiResponse<List<MonthlyReportItemResponse>>.FailureResponse("Dữ liệu không hợp lệ", errors); // Trả về lỗi
+                }
+
+                var raw = await _reportRepository.GetMonthlyAttendanceByEventDateAsync(from, to, cancellationToken); // Lấy raw data theo tháng từ repo
+
+                var result = raw.Select(x => new MonthlyReportItemResponse // Map raw sang response DTO
+                {
+                    Year = x.Year, // Gán năm
+                    Month = x.Month, // Gán tháng
+                    TotalRegistrations = x.TotalTickets, // Gán tổng đăng ký
+                    ParticipatedCount = x.ParticipatedTickets, // Gán số tham gia
+                    NotParticipatedCount = Math.Max(0, x.TotalTickets - x.ParticipatedTickets), // Tính số không tham gia
+                    AbandonedCount = x.AbandonedTickets // Gán số check-in chưa check-out trong tháng
+                }).ToList(); // Convert sang List
+
+
+                return ApiResponse<List<MonthlyReportItemResponse>>.SuccessResponse(result, "Thành công"); // Trả về success
+            }
+            catch (Exception ex) // Bắt lỗi hệ thống để log
+            {
+                _logger.LogError(ex, "GetMonthlyReportAsync failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi kèm input
+                return ApiResponse<List<MonthlyReportItemResponse>>.FailureResponse("Lỗi hệ thống", new List<string> { "Có lỗi xảy ra khi tạo báo cáo theo tháng." }); // Trả về lỗi chung
+            }
+        }
+
+        public async Task<ApiResponse<List<EventReportItemResponse>>> GetEventsReportAsync(string? fromDate, string? toDate, CancellationToken cancellationToken = default) // Service xử lý danh sách event report
+        {
+            try // Bọc try để log lỗi runtime
+            {
+                var errors = new List<string>(); // Tạo list gom lỗi validate
+
+                DateOnly? from = TryParseDateOnly(fromDate, "fromDate", errors); // Parse fromDate
+                DateOnly? to = TryParseDateOnly(toDate, "toDate", errors); // Parse toDate
+
+                if (errors.Count > 0) // Nếu lỗi format
+                {
+                    _logger.LogWarning("GetEventsReportAsync validation failed. Errors={Errors}", string.Join(" | ", errors)); // Log validate
+                    return ApiResponse<List<EventReportItemResponse>>.FailureResponse("Dữ liệu không hợp lệ", errors); // Trả về lỗi
+                }
+
+                if (from.HasValue && to.HasValue && from.Value > to.Value) // Validate range
+                {
+                    errors.Add("fromDate phải nhỏ hơn hoặc bằng toDate (định dạng yyyy-MM-dd)."); // Thêm lỗi
+                    _logger.LogWarning("GetEventsReportAsync date range invalid. from={From}, to={To}", from, to); // Log cảnh báo
+                    return ApiResponse<List<EventReportItemResponse>>.FailureResponse("Dữ liệu không hợp lệ", errors); // Trả về lỗi
+                }
+
+                var raw = await _reportRepository.GetEventsAttendanceByEventDateAsync(from, to, cancellationToken); // Lấy raw list event + số liệu từ repo
+
+                var result = raw.Select(x => // Map raw sang response DTO
+                {
+                    int notParticipated = Math.Max(0, x.TotalTickets - x.ParticipatedTickets); // Tính không tham gia (chặn âm)
+                    double participatedPercent = x.TotalTickets == 0 ? 0 : (double)x.ParticipatedTickets * 100 / x.TotalTickets; // Tính % tham gia
+                    double notParticipatedPercent = x.TotalTickets == 0 ? 0 : (double)notParticipated * 100 / x.TotalTickets; // Tính % không tham gia
+
+                    return new EventReportItemResponse // Tạo object response theo event
+                    {
+                        EventName = x.Title, // Gán tên event
+                        EventDate = x.Date, // Gán ngày event
+                        TotalRegistrations = x.TotalTickets, // Gán tổng đăng ký
+                        ParticipatedCount = x.ParticipatedTickets, // Gán số tham gia
+                        NotParticipatedCount = notParticipated, // Gán số không tham gia
+                        ParticipatedPercent = Math.Round(participatedPercent, 2), // Làm tròn % tham gia
+                        NotParticipatedPercent = Math.Round(notParticipatedPercent, 2), // Làm tròn % không tham gia
+                        AbandonedCount = x.AbandonedTickets // Gán số check-in chưa check-out của event
+                    };
+
+                }).ToList(); // Convert sang List
+
+                return ApiResponse<List<EventReportItemResponse>>.SuccessResponse(result, "Thành công"); // Trả về success
+            }
+            catch (Exception ex) // Bắt lỗi hệ thống để log
+            {
+                _logger.LogError(ex, "GetEventsReportAsync failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi kèm input
+                return ApiResponse<List<EventReportItemResponse>>.FailureResponse("Lỗi hệ thống", new List<string> { "Có lỗi xảy ra khi tạo danh sách báo cáo sự kiện." }); // Trả về lỗi chung
+            }
+        }
+
+        private static DateOnly? TryParseDateOnly(string? input, string fieldName, List<string> errors) // Helper parse DateOnly theo format yyyy-MM-dd
+        {
+            if (string.IsNullOrWhiteSpace(input)) return null; // Nếu null/rỗng thì coi như không filter
+
+            if (DateOnly.TryParseExact(input, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var value)) // Parse theo format chuẩn
+            {
+                return value; // Parse ok thì trả về DateOnly
+            }
+
+            errors.Add($"{fieldName} không đúng định dạng yyyy-MM-dd."); // Parse fail thì thêm lỗi vào list
+            return null; // Trả về null để service xử lý lỗi
         }
 
         public async Task<ApiResponse<EventSummaryReportDto>> GetEventSummaryAsync(EventSummaryFilterRequest request)
