@@ -372,17 +372,33 @@ public class TicketService : ITicketService
                 );
             }
 
-            // Allow checkout during event or after event ends
+            // Validate checkout timing
             var now = DateTime.UtcNow;
             var eventStart = new DateTime(
                 eventData.Date.Year, eventData.Date.Month, eventData.Date.Day,
                 eventData.StartTime.Hour, eventData.StartTime.Minute, eventData.StartTime.Second,
                 DateTimeKind.Utc);
             
+            var eventEnd = new DateTime(
+                eventData.Date.Year, eventData.Date.Month, eventData.Date.Day,
+                eventData.EndTime.Hour, eventData.EndTime.Minute, eventData.EndTime.Second,
+                DateTimeKind.Utc);
+            
+            // Cannot checkout before event starts
             if (now < eventStart)
             {
                 return ApiResponse<CheckoutResponseDto>.FailureResponse(
                     "Sự kiện chưa bắt đầu. Không thể check-out."
+                );
+            }
+            
+            // ✅ Allow checkout 30 minutes before event ends
+            var checkoutAllowedFrom = eventEnd.AddMinutes(-30);
+            if (now < checkoutAllowedFrom)
+            {
+                var minutesRemaining = (checkoutAllowedFrom - now).TotalMinutes;
+                return ApiResponse<CheckoutResponseDto>.FailureResponse(
+                    $"Chỉ có thể check-out từ 30 phút trước khi sự kiện kết thúc. Còn {minutesRemaining:F0} phút nữa."
                 );
             }
 
