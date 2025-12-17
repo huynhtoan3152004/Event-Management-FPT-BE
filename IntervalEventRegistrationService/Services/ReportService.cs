@@ -57,15 +57,19 @@ namespace IntervalEventRegistrationService.Services
                 double participatedPercent = totalTickets == 0 ? 0 : (double)participated * 100 / totalTickets; // Tính % tham gia (chia 0 thì =0)
                 double notParticipatedPercent = totalTickets == 0 ? 0 : (double)notParticipated * 100 / totalTickets; // Tính % không tham gia
 
+                int abandoned = await _reportRepository.CountAbandonedTicketsByEventDateAsync(from, to, cancellationToken); // Đếm abandoned theo khoảng ngày
+
                 var response = new SystemReportResponse // Tạo DTO response trả về API
                 {
                     TotalEvents = totalEvents, // Gán tổng event
                     TotalRegistrations = totalTickets, // Gán tổng đăng ký
                     ParticipatedCount = participated, // Gán số tham gia
                     NotParticipatedCount = notParticipated, // Gán số không tham gia
-                    ParticipatedPercent = Math.Round(participatedPercent, 2), // Làm tròn 2 chữ số cho đẹp
-                    NotParticipatedPercent = Math.Round(notParticipatedPercent, 2) // Làm tròn 2 chữ số cho đẹp
+                    ParticipatedPercent = Math.Round(participatedPercent, 2), // Làm tròn % tham gia
+                    NotParticipatedPercent = Math.Round(notParticipatedPercent, 2), // Làm tròn % không tham gia
+                    AbandonedCount = abandoned // Gán số check-in chưa check-out
                 };
+
 
                 return ApiResponse<SystemReportResponse>.SuccessResponse(response, "Thành công"); // Trả về success
             }
@@ -106,8 +110,10 @@ namespace IntervalEventRegistrationService.Services
                     Month = x.Month, // Gán tháng
                     TotalRegistrations = x.TotalTickets, // Gán tổng đăng ký
                     ParticipatedCount = x.ParticipatedTickets, // Gán số tham gia
-                    NotParticipatedCount = Math.Max(0, x.TotalTickets - x.ParticipatedTickets) // Tính số không tham gia (chặn âm)
+                    NotParticipatedCount = Math.Max(0, x.TotalTickets - x.ParticipatedTickets), // Tính số không tham gia
+                    AbandonedCount = x.AbandonedTickets // Gán số check-in chưa check-out trong tháng
                 }).ToList(); // Convert sang List
+
 
                 return ApiResponse<List<MonthlyReportItemResponse>>.SuccessResponse(result, "Thành công"); // Trả về success
             }
@@ -156,8 +162,10 @@ namespace IntervalEventRegistrationService.Services
                         ParticipatedCount = x.ParticipatedTickets, // Gán số tham gia
                         NotParticipatedCount = notParticipated, // Gán số không tham gia
                         ParticipatedPercent = Math.Round(participatedPercent, 2), // Làm tròn % tham gia
-                        NotParticipatedPercent = Math.Round(notParticipatedPercent, 2) // Làm tròn % không tham gia
+                        NotParticipatedPercent = Math.Round(notParticipatedPercent, 2), // Làm tròn % không tham gia
+                        AbandonedCount = x.AbandonedTickets // Gán số check-in chưa check-out của event
                     };
+
                 }).ToList(); // Convert sang List
 
                 return ApiResponse<List<EventReportItemResponse>>.SuccessResponse(result, "Thành công"); // Trả về success

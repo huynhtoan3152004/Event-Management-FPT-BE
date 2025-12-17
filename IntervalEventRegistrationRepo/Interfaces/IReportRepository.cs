@@ -42,8 +42,11 @@ namespace IntervalEventRegistrationRepo.Interfaces
         Task<List<MonthlyAttendanceRawData>> GetMonthlyAttendanceByEventDateAsync(DateOnly? fromDate, DateOnly? toDate, CancellationToken cancellationToken = default); // Report theo tháng
 
         Task<List<EventAttendanceRawData>> GetEventsAttendanceByEventDateAsync(DateOnly? fromDate, DateOnly? toDate, CancellationToken cancellationToken = default); // Danh sách event + số liệu
+
+        Task<int> CountAbandonedTicketsByEventDateAsync(DateOnly? fromDate, DateOnly? toDate, CancellationToken cancellationToken = default); // Đếm abandoned theo ngày diễn ra event
+
     }
 
-   
-  
+
+
 }

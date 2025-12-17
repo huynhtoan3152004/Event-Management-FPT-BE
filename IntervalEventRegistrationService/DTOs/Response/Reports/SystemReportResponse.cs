@@ -14,5 +14,6 @@ namespace IntervalEventRegistrationService.DTOs.Response.Reports
         public int NotParticipatedCount { get; set; } // Số người không tham gia
         public double ParticipatedPercent { get; set; } // % tham gia
         public double NotParticipatedPercent { get; set; } // % không tham gia
+        public int AbandonedCount { get; set; } // Số người check-in nhưng chưa check-out (abandoned)
     }
 }

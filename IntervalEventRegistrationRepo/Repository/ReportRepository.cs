@@ -279,7 +279,8 @@ namespace IntervalEventRegistrationRepo.Repository
                               TotalTickets = g.Count(), // Tổng ticket trong tháng
                               ParticipatedTickets = g.Count(x => x.TicketStatus == "checked-in" // Đếm status tham gia 1
                                                           || x.TicketStatus == "completed" // Đếm status tham gia 2
-                                                          || x.TicketStatus == "abandoned") // Đếm status tham gia 3
+                                                          || x.TicketStatus == "abandoned"), // Đếm status tham gia 3
+                              AbandonedTickets = g.Count(x => x.TicketStatus == "abandoned") // Đếm check-in chưa check-out trong tháng
                           })
                           .OrderBy(x => x.Year) // Sắp xếp theo năm tăng dần
                           .ThenBy(x => x.Month) // Sắp xếp theo tháng tăng dần
@@ -322,7 +323,9 @@ namespace IntervalEventRegistrationRepo.Repository
                               ParticipatedTickets = g.Count(x => x.TicketId != null // Chỉ count khi có ticket
                                                           && (x.TicketStatus == "checked-in" // Status tham gia 1
                                                               || x.TicketStatus == "completed" // Status tham gia 2
-                                                              || x.TicketStatus == "abandoned")) // Status tham gia 3
+                                                              || x.TicketStatus == "abandoned")), // Status tham gia 3
+                              AbandonedTickets = g.Count(x => x.TicketId != null // Chỉ count khi có ticket
+                                                          && x.TicketStatus == "abandoned") // Đếm check-in chưa check-out theo event
                           })
                           .OrderBy(x => x.Date) // Sắp xếp theo ngày diễn ra tăng dần
                           .ToListAsync(cancellationToken); // Execute query
@@ -353,6 +356,27 @@ namespace IntervalEventRegistrationRepo.Repository
             return query; // Trả về query đã filter
         }
 
-    
+        public async Task<int> CountAbandonedTicketsByEventDateAsync(DateOnly? fromDate, DateOnly? toDate, CancellationToken cancellationToken = default) // Đếm số ticket abandoned theo khoảng ngày event
+        {
+            try // Bọc try để log lỗi khi query DB
+            {
+                IQueryable<Event> eventsQuery = BuildEventsQuery(fromDate, toDate); // Lấy query event theo khoảng ngày
+
+                int total = await (from t in _dbContext.Tickets.AsNoTracking() // Query ticket chỉ đọc
+                                   join e in eventsQuery on t.EventId equals e.EventId // Join ticket với event đã filter
+                                   where t.Status == "abandoned" // Fix cứng abandoned = check-in chưa check-out
+                                   select t.TicketId) // Select TicketId để count nhẹ
+                                  .CountAsync(cancellationToken); // Đếm số abandoned
+
+                return total; // Trả về số ticket abandoned
+            }
+            catch (Exception ex) // Bắt exception để log
+            {
+                _logger.LogError(ex, "CountAbandonedTicketsByEventDateAsync failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi kèm input
+                throw; // Ném lỗi lên service
+            }
+        }
+
+
     }
 }
