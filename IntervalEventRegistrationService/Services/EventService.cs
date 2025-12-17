@@ -798,17 +798,17 @@ public class EventService : IEventService
             return ApiResponse<List<SeatDto>>.FailureResponse("Sự kiện không có hội trường");
         }
         
-        // ✅ Get seats from Hall, not Event
+        // ✅ Get ALL seats from Hall with ALL statuses (available, reserved, occupied)
         var seats = await _seatRepository.GetByHallIdAsync(ev.HallId);
-        var available = seats.Where(s => s.Status == "available").Select(s => new SeatDto
+        var seatDtos = seats.Select(s => new SeatDto
         {
             SeatId = s.SeatId,
             SeatNumber = s.SeatNumber,
             RowLabel = s.RowLabel,
-            Status = s.Status
-        }).ToList();
+            Status = s.Status  // ✅ Return all statuses: available, reserved, occupied
+        }).OrderBy(s => s.RowLabel).ThenBy(s => s.SeatNumber).ToList();
         
-        return ApiResponse<List<SeatDto>>.SuccessResponse(available, "Lấy danh sách ghế trống theo sự kiện thành công");
+        return ApiResponse<List<SeatDto>>.SuccessResponse(seatDtos, $"Lấy danh sách ghế thành công ({seatDtos.Count} ghế)");
     }
     private EventListItemDto MapToListItemDto(Event e)
     {
