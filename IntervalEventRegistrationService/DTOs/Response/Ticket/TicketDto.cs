@@ -18,4 +18,5 @@ public class TicketDto
 public class CheckinResultDto
 {
     public string Result { get; set; } = string.Empty;
+    public string TicketCode { get; set; } = string.Empty;
 }

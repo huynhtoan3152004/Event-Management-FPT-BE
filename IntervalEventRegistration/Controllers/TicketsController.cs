@@ -96,16 +96,17 @@ public class TicketsController : ControllerBase
     /// <summary>
     /// Check-out ticket (student leaving event)
     /// </summary>
-    [HttpPost("tickets/checkout")]
+    [HttpPost("tickets/{ticketCode}/checkout")]
     [Authorize(Roles = "staff,organizer")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> CheckOut([FromBody] CheckoutTicketRequest request)
+    public async Task<IActionResult> CheckOut(string ticketCode)
     {
         var staffId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var staffRole = User.FindFirstValue(ClaimTypes.Role)!;
 
-        var result = await _ticketService.CheckOutAsync(request, staffId);
+        var result = await _ticketService.CheckOutAsync(ticketCode, staffId, staffRole);
 
         if (!result.Success)
         {
