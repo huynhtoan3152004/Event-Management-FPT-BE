@@ -70,6 +70,8 @@ namespace IntervalEventRegistrationService.DTOs.Response.Reports
 
         // Danh sách số lượng check-in được nhóm theo từng khoảng thời gian (time slot)
         public List<CheckinTimeSlotDto> CheckinByTimeSlots { get; set; } = new();
+        public Dictionary<string, int> TicketStatusSummary { get; set; } = new(); // thống kê số lượng vé theo từng trạng thái (động từ DB), dùng để vẽ chart/phân bố
+
     }
 
     public class CheckinTimeSlotDto

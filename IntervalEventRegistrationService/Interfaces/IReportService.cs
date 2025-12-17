@@ -16,5 +16,10 @@ namespace IntervalEventRegistrationService.Interfaces
 
         // Hàm này dùng để lấy báo cáo tổng hợp toàn hệ thống trong khoảng thời gian from - to, có filter theo trạng thái event
         Task<ApiResponse<SystemLevelReportDto>> GetSystemLevelReportAsync(SystemLevelReportFilterRequest request);
+        Task<ApiResponse<SystemReportResponse>> GetSystemReportAsync(string? fromDate, string? toDate, CancellationToken cancellationToken = default); // Report tổng hợp hệ thống
+
+        Task<ApiResponse<List<MonthlyReportItemResponse>>> GetMonthlyReportAsync(string? fromDate, string? toDate, CancellationToken cancellationToken = default); // Report theo tháng
+
+        Task<ApiResponse<List<EventReportItemResponse>>> GetEventsReportAsync(string? fromDate, string? toDate, CancellationToken cancellationToken = default); // Danh sách event + số liệu
     }
 }

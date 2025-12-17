@@ -1,7 +1,9 @@
 ﻿using IntervalEventRegistrationRepo.Data;
 using IntervalEventRegistrationRepo.Entities;
 using IntervalEventRegistrationRepo.Interfaces;
+using IntervalEventRegistrationRepo.Models.Reports;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,10 +15,12 @@ namespace IntervalEventRegistrationRepo.Repository
     public class ReportRepository : IReportRepository
     {
         private readonly ApplicationDbContext _dbContext;
+        private readonly ILogger<ReportRepository> _logger;
 
-        public ReportRepository(ApplicationDbContext dbContext)
+        public ReportRepository(ApplicationDbContext dbContext, ILogger<ReportRepository> logger)
         {
             _dbContext = dbContext;
+            _logger = logger;
         }
 
         public async Task<Event?> GetEventWithDetailsAsync(string eventId)
@@ -133,6 +137,246 @@ namespace IntervalEventRegistrationRepo.Repository
 
             return result; // Trả về danh sách TicketCheckin thỏa mãn các điều kiện filter để service dùng cho báo cáo
         }
+
+
+        public async Task<Dictionary<string, int>> GetTicketStatusSummaryForSystemReportAsync(DateTime? fromUtc, DateTime? toUtc, string? eventStatus)
+        {
+            DateOnly? fromDate = fromUtc.HasValue ? DateOnly.FromDateTime(fromUtc.Value) : null; // convert fromUtc sang DateOnly để filter theo Event.Date
+            DateOnly? toDate = toUtc.HasValue ? DateOnly.FromDateTime(toUtc.Value) : null; // convert toUtc sang DateOnly để filter theo Event.Date
+
+            string? normalizedEventStatus = string.IsNullOrWhiteSpace(eventStatus) ? null : eventStatus.Trim().ToLower(); // chuẩn hoá eventStatus để so sánh ổn định
+
+            IQueryable<IntervalEventRegistrationRepo.Entities.Ticket> query = _dbContext.Tickets // bắt đầu từ bảng tickets (đã auto lọc IsDeleted nhờ global query filter)
+                .AsNoTracking() // tối ưu performance vì chỉ đọc dữ liệu
+                .Where(t => t.Event != null) // loại ticket có event bị soft-delete (do global filter làm navigation null)
+                .Where(t => t.Status != null && t.Status.Trim() != ""); // loại status null/empty để summary không bị rác
+
+            if (fromDate.HasValue) // chỉ filter khi có from
+            {
+                query = query.Where(t => t.Event!.Date >= fromDate.Value); // lọc theo ngày diễn ra sự kiện từ fromDate
+            }
+
+            if (toDate.HasValue) // chỉ filter khi có to
+            {
+                query = query.Where(t => t.Event!.Date <= toDate.Value); // lọc theo ngày diễn ra sự kiện đến toDate
+            }
+
+            if (normalizedEventStatus != null) // chỉ filter khi có eventStatus
+            {
+                query = query.Where(t => t.Event!.Status != null && t.Event!.Status.Trim().ToLower() == normalizedEventStatus); // lọc theo status của event
+            }
+
+            var items = await query // bắt đầu query tổng hợp
+                .GroupBy(t => t.Status.Trim().ToLower()) // group theo ticket status đã chuẩn hoá
+                .Select(g => new { Status = g.Key, Total = g.Count() }) // project ra status + tổng số ticket
+                .OrderBy(x => x.Status) // sắp xếp để output ổn định cho UI
+                .ToListAsync(); // thực thi query và lấy về list
+
+            Dictionary<string, int> result = items.ToDictionary(x => x.Status, x => x.Total); // convert list -> dictionary để trả về service
+
+            return result; // trả về summary status động
+        }
+
+        public async Task<Dictionary<string, int>> GetTicketStatusSummaryForEventReportAsync(string eventId)
+        {
+            string normalizedEventId = eventId.Trim(); // chuẩn hoá eventId tránh lỗi do khoảng trắng
+
+            IQueryable<IntervalEventRegistrationRepo.Entities.Ticket> query = _dbContext.Tickets // lấy tickets theo event
+                .AsNoTracking() // tối ưu vì chỉ đọc
+                .Where(t => t.EventId == normalizedEventId) // filter đúng eventId
+                .Where(t => t.Status != null && t.Status.Trim() != ""); // loại status null/empty
+
+            var items = await query // bắt đầu tổng hợp
+                .GroupBy(t => t.Status.Trim().ToLower()) // group theo ticket status động
+                .Select(g => new { Status = g.Key, Total = g.Count() }) // lấy status + số lượng
+                .OrderBy(x => x.Status) // sắp xếp ổn định
+                .ToListAsync(); // thực thi query
+
+            Dictionary<string, int> result = items.ToDictionary(x => x.Status, x => x.Total); // chuyển về dictionary
+
+            return result; // trả về summary status động cho 1 event
+        }
+
+        public async Task<int> CountEventsByEventDateAsync(DateOnly? fromDate, DateOnly? toDate, CancellationToken cancellationToken = default) // Đếm event theo khoảng ngày diễn ra
+        {
+            try // Bọc try để log lỗi khi query DB
+            {
+                IQueryable<Event> query = BuildEventsQuery(fromDate, toDate); // Tạo query event đã filter theo from/to (nếu có)
+
+                int total = await query.CountAsync(cancellationToken); // Đếm số event thỏa điều kiện
+                return total; // Trả về tổng số event
+            }
+            catch (Exception ex) // Bắt mọi exception để log
+            {
+                _logger.LogError(ex, "CountEventsByEventDateAsync failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi kèm tham số
+                throw; // Ném lỗi lên service để controller xử lý response
+            }
+        }
+
+        public async Task<int> CountTicketsByEventDateAsync(DateOnly? fromDate, DateOnly? toDate, CancellationToken cancellationToken = default) // Đếm tổng ticket theo khoảng ngày event
+        {
+            try // Bọc try để log lỗi khi query DB
+            {
+                IQueryable<Event> eventsQuery = BuildEventsQuery(fromDate, toDate); // Lấy query event theo khoảng ngày
+
+                int total = await (from t in _dbContext.Tickets.AsNoTracking() // Query ticket chỉ đọc để nhanh hơn
+                                   join e in eventsQuery on t.EventId equals e.EventId // Join ticket với event đã filter
+                                   select t.TicketId) // Chỉ select 1 field để count nhẹ hơn
+                                  .CountAsync(cancellationToken); // Đếm số ticket
+
+                return total; // Trả về tổng ticket (tổng lượt đăng ký)
+            }
+            catch (Exception ex) // Bắt exception để log
+            {
+                _logger.LogError(ex, "CountTicketsByEventDateAsync failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi kèm input
+                throw; // Ném lỗi lên service
+            }
+        }
+
+        public async Task<int> CountParticipatedTicketsByEventDateAsync(DateOnly? fromDate, DateOnly? toDate, CancellationToken cancellationToken = default) // Đếm số ticket tham gia theo status fix cứng
+        {
+            try // Bọc try để log lỗi khi query DB
+            {
+                IQueryable<Event> eventsQuery = BuildEventsQuery(fromDate, toDate); // Lấy query event theo khoảng ngày
+
+                int total = await (from t in _dbContext.Tickets.AsNoTracking() // Query ticket chỉ đọc
+                                   join e in eventsQuery on t.EventId equals e.EventId // Join ticket với event đã filter
+                                   where t.Status == "checked-in" // Fix cứng status tham gia 1
+                                      || t.Status == "completed" // Fix cứng status tham gia 2
+                                      || t.Status == "abandoned" // Fix cứng status tham gia 3
+                                   select t.TicketId) // Select TicketId để count
+                                  .CountAsync(cancellationToken); // Đếm số ticket tham gia
+
+                return total; // Trả về số người tham gia
+            }
+            catch (Exception ex) // Bắt exception để log
+            {
+                _logger.LogError(ex, "CountParticipatedTicketsByEventDateAsync failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi chi tiết
+                throw; // Ném lỗi lên service
+            }
+        }
+
+        public async Task<List<MonthlyAttendanceRawData>> GetMonthlyAttendanceByEventDateAsync(DateOnly? fromDate, DateOnly? toDate, CancellationToken cancellationToken = default) // Lấy thống kê theo tháng
+        {
+            try // Bọc try để log lỗi khi query DB
+            {
+                IQueryable<Event> eventsQuery = BuildEventsQuery(fromDate, toDate); // Query event theo khoảng ngày
+
+                List<MonthlyAttendanceRawData> data =
+                    await (from t in _dbContext.Tickets.AsNoTracking() // Query ticket chỉ đọc
+                           join e in eventsQuery on t.EventId equals e.EventId // Join ticket với event đã filter
+                           select new // Project sang object trung gian để group theo month
+                           {
+                               EventYear = e.Date.Year, // Lấy năm từ ngày event
+                               EventMonth = e.Date.Month, // Lấy tháng từ ngày event
+                               TicketStatus = t.Status // Lấy status ticket để tính participated
+                           })
+                          .GroupBy(x => new { x.EventYear, x.EventMonth }) // Group theo năm-tháng
+                          .Select(g => new MonthlyAttendanceRawData // Map sang DTO raw
+                          {
+                              Year = g.Key.EventYear, // Gán năm
+                              Month = g.Key.EventMonth, // Gán tháng
+                              TotalTickets = g.Count(), // Tổng ticket trong tháng
+                              ParticipatedTickets = g.Count(x => x.TicketStatus == "checked-in" // Đếm status tham gia 1
+                                                          || x.TicketStatus == "completed" // Đếm status tham gia 2
+                                                          || x.TicketStatus == "abandoned"), // Đếm status tham gia 3
+                              AbandonedTickets = g.Count(x => x.TicketStatus == "abandoned") // Đếm check-in chưa check-out trong tháng
+                          })
+                          .OrderBy(x => x.Year) // Sắp xếp theo năm tăng dần
+                          .ThenBy(x => x.Month) // Sắp xếp theo tháng tăng dần
+                          .ToListAsync(cancellationToken); // Execute query
+
+                return data; // Trả về list thống kê theo tháng
+            }
+            catch (Exception ex) // Bắt exception để log
+            {
+                _logger.LogError(ex, "GetMonthlyAttendanceByEventDateAsync failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi
+                throw; // Ném lỗi lên service
+            }
+        }
+
+        public async Task<List<EventAttendanceRawData>> GetEventsAttendanceByEventDateAsync(DateOnly? fromDate, DateOnly? toDate, CancellationToken cancellationToken = default) // Lấy danh sách event + số liệu
+        {
+            try // Bọc try để log lỗi khi query DB
+            {
+                IQueryable<Event> eventsQuery = BuildEventsQuery(fromDate, toDate); // Query event theo khoảng ngày
+
+                List<EventAttendanceRawData> data =
+                    await (from e in eventsQuery.AsNoTracking() // Query event chỉ đọc
+                           join t in _dbContext.Tickets.AsNoTracking() on e.EventId equals t.EventId into tg // Left join sang ticket để event không có ticket vẫn lên report
+                           from t in tg.DefaultIfEmpty() // DefaultIfEmpty để thành left join
+                           select new // Project sang object trung gian để group theo event
+                           {
+                               e.EventId, // Mang theo EventId
+                               e.Title, // Mang theo Title
+                               e.Date, // Mang theo Date
+                               TicketId = t != null ? t.TicketId : null, // Nếu không có ticket thì null để count đúng
+                               TicketStatus = t != null ? t.Status : null // Nếu không có ticket thì null để tránh crash
+                           })
+                          .GroupBy(x => new { x.EventId, x.Title, x.Date }) // Group theo từng event
+                          .Select(g => new EventAttendanceRawData // Map sang DTO raw
+                          {
+                              EventId = g.Key.EventId, // Gán EventId
+                              Title = g.Key.Title, // Gán tên event
+                              Date = g.Key.Date, // Gán ngày event
+                              TotalTickets = g.Count(x => x.TicketId != null), // Đếm ticket khác null
+                              ParticipatedTickets = g.Count(x => x.TicketId != null // Chỉ count khi có ticket
+                                                          && (x.TicketStatus == "checked-in" // Status tham gia 1
+                                                              || x.TicketStatus == "completed" // Status tham gia 2
+                                                              || x.TicketStatus == "abandoned")), // Status tham gia 3
+                              AbandonedTickets = g.Count(x => x.TicketId != null // Chỉ count khi có ticket
+                                                          && x.TicketStatus == "abandoned") // Đếm check-in chưa check-out theo event
+                          })
+                          .OrderBy(x => x.Date) // Sắp xếp theo ngày diễn ra tăng dần
+                          .ToListAsync(cancellationToken); // Execute query
+
+                return data; // Trả về list event + số liệu
+            }
+            catch (Exception ex) // Bắt exception để log
+            {
+                _logger.LogError(ex, "GetEventsAttendanceByEventDateAsync failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi
+                throw; // Ném lỗi lên service
+            }
+        }
+
+        private IQueryable<Event> BuildEventsQuery(DateOnly? fromDate, DateOnly? toDate) // Helper build query event theo from/to (nullable)
+        {
+            IQueryable<Event> query = _dbContext.Events.AsQueryable(); // Tạo queryable event (đã có global filter soft delete)
+
+            if (fromDate.HasValue) // Nếu có fromDate thì mới lọc
+            {
+                query = query.Where(e => e.Date >= fromDate.Value); // Lọc event có ngày >= fromDate
+            }
+
+            if (toDate.HasValue) // Nếu có toDate thì mới lọc
+            {
+                query = query.Where(e => e.Date <= toDate.Value); // Lọc event có ngày <= toDate
+            }
+
+            return query; // Trả về query đã filter
+        }
+
+        public async Task<int> CountAbandonedTicketsByEventDateAsync(DateOnly? fromDate, DateOnly? toDate, CancellationToken cancellationToken = default) // Đếm số ticket abandoned theo khoảng ngày event
+        {
+            try // Bọc try để log lỗi khi query DB
+            {
+                IQueryable<Event> eventsQuery = BuildEventsQuery(fromDate, toDate); // Lấy query event theo khoảng ngày
+
+                int total = await (from t in _dbContext.Tickets.AsNoTracking() // Query ticket chỉ đọc
+                                   join e in eventsQuery on t.EventId equals e.EventId // Join ticket với event đã filter
+                                   where t.Status == "abandoned" // Fix cứng abandoned = check-in chưa check-out
+                                   select t.TicketId) // Select TicketId để count nhẹ
+                                  .CountAsync(cancellationToken); // Đếm số abandoned
+
+                return total; // Trả về số ticket abandoned
+            }
+            catch (Exception ex) // Bắt exception để log
+            {
+                _logger.LogError(ex, "CountAbandonedTicketsByEventDateAsync failed. fromDate={FromDate}, toDate={ToDate}", fromDate, toDate); // Log lỗi kèm input
+                throw; // Ném lỗi lên service
+            }
+        }
+
 
     }
 }
