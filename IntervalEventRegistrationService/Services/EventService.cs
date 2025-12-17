@@ -145,8 +145,16 @@ public class EventService : IEventService
                 return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy hội trường");
             }
 
+            // ✅ Check if hall has seats generated
+            var hallSeats = await _seatRepository.GetByHallIdAsync(request.HallId!);
+            if (!hallSeats.Any())
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse(
+                    "Hội trường chưa có ghế. Vui lòng tạo ghế cho hội trường trước khi tạo sự kiện.");
+            }
+
             // Auto get seat configuration from Hall
-            totalSeats = hall.Capacity;
+            totalSeats = hallSeats.Count; // ✅ Use actual seat count from hall
             maxRows = hall.MaxRows;
             maxSeatsPerRow = hall.MaxSeatsPerRow;
 
@@ -285,11 +293,8 @@ public class EventService : IEventService
             await _eventRepository.SaveChangesAsync();
         }
 
-        // Generate seats for the event using Hall configuration (chỉ khi có hall)
-        if (hasHall)
-        {
-            await GenerateSeatsForEventAsync(eventEntity.EventId, request.HallId!, maxRows, maxSeatsPerRow);
-        }
+        // ❌ REMOVED: Do NOT generate seats for event - use Hall's seats instead
+        // Seats belong to Hall, not Event. Event only references HallId.
 
         var createdEvent = await _eventRepository.GetByIdAsync(eventEntity.EventId, includeRelations: true);
         var dto = MapToDetailDto(createdEvent!);
@@ -364,8 +369,16 @@ public class EventService : IEventService
                 return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy hội trường");
             }
 
+            // ✅ Check if hall has seats
+            var hallSeats = await _seatRepository.GetByHallIdAsync(request.HallId!);
+            if (!hallSeats.Any())
+            {
+                return ApiResponse<EventDetailDto>.FailureResponse(
+                    "Hội trường chưa có ghế. Vui lòng tạo ghế cho hội trường trước.");
+            }
+
             // Auto-fetch hall configuration
-            totalSeats = hall.Capacity;
+            totalSeats = hallSeats.Count; // ✅ Use actual seat count from hall
             maxRows = hall.MaxRows;
             maxSeatsPerRow = hall.MaxSeatsPerRow;
 
@@ -382,10 +395,8 @@ public class EventService : IEventService
                     $"Hội trường mới chỉ có {totalSeats} ghế, không đủ cho {eventEntity.RegisteredCount} người đã đăng ký");
             }
 
-            // Check if seat configuration changed
-            seatConfigChanged = eventEntity.HallId != request.HallId ||
-                                eventEntity.NumberOfRows != maxRows || 
-                                eventEntity.SeatsPerRow != maxSeatsPerRow;
+            // ✅ Check if hall changed (not seat config)
+            seatConfigChanged = eventEntity.HallId != request.HallId;
 
             // Check hall availability (exclude current event)
             var conflicts = await _hallRepository.GetConflictingEventsAsync(request.HallId!, request.Date, request.StartTime, request.EndTime);
@@ -466,16 +477,9 @@ public class EventService : IEventService
         await _eventRepository.UpdateAsync(eventEntity);
         await _eventRepository.SaveChangesAsync();
 
-        // Regenerate seats if configuration changed and event has a hall
-        if (seatConfigChanged && hasHall)
-        {
-            // Delete old seats for this event
-            await _seatRepository.DeleteByEventIdAsync(eventId);
-            await _seatRepository.SaveChangesAsync();
-
-            // Generate new seats
-            await GenerateSeatsForEventAsync(eventId, request.HallId!, maxRows, maxSeatsPerRow);
-        }
+        // ❌ REMOVED: Do NOT regenerate seats - use Hall's seats instead
+        // When hall changes, we just reference the new hall's existing seats.
+        // No need to create new seats for event.
 
         // Update speakers if provided
         if (request.SpeakerIds != null && request.SpeakerIds.Any())
@@ -765,32 +769,17 @@ public class EventService : IEventService
         };
     }
 
+    /// <summary>
+    /// ❌ DEPRECATED: This method should NOT be used anymore.
+    /// Seats belong to Hall, not Event. Events should reference Hall's existing seats.
+    /// Creating seats per event causes duplicate seats for the same hall.
+    /// </summary>
+    [Obsolete("Do not use. Seats should be created for Hall only, not per Event.")]
     private async Task GenerateSeatsForEventAsync(string eventId, string hallId, int numberOfRows, int seatsPerRow)
     {
-        var seats = new List<Seat>();
-
-        for (int row = 1; row <= numberOfRows; row++)
-        {
-            // Generate row label: A, B, C, ..., Z, AA, AB, ...
-            string rowLabel = GetRowLabel(row);
-
-            for (int seatNum = 1; seatNum <= seatsPerRow; seatNum++)
-            {
-                seats.Add(new Seat
-                {
-                    SeatId = Guid.NewGuid().ToString(),
-                    HallId = hallId,
-                    EventId = eventId,
-                    RowLabel = rowLabel,
-                    SeatNumber = $"{rowLabel}{seatNum}",
-                    Status = "available",
-                    CreatedAt = DateTime.UtcNow
-                });
-            }
-        }
-
-        await _seatRepository.AddRangeAsync(seats);
-        await _seatRepository.SaveChangesAsync();
+        // This method is kept for backward compatibility but should not be called
+        throw new InvalidOperationException(
+            "GenerateSeatsForEventAsync is deprecated. Seats should be created for Hall, not Event.");
     }
 
     public async Task<ApiResponse<EventStatisticsDto>> GetEventStatisticsAsync(string eventId)
