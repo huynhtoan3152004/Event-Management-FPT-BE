@@ -16,5 +16,5 @@ public interface ITicketService
     /// <summary>
     /// Check-out ticket (student leaving event)
     /// </summary>
-    Task<ApiResponse<CheckoutResponseDto>> CheckOutAsync(CheckoutTicketRequest request, string staffId);
+    Task<ApiResponse<CheckoutResponseDto>> CheckOutAsync(string ticketCode, string staffId, string staffRole);
 }

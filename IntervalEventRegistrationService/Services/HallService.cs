@@ -33,7 +33,7 @@ public class HallService : IHallService
             request.Search,
             request.Status,
             request.MinCapacity,
-            request.MaxCapacity);
+            request.MaxCapacity);   
 
         var hallDtos = new List<HallListItemDto>();
         foreach (var hall in halls)
@@ -299,6 +299,7 @@ public class HallService : IHallService
                     {
                         SeatId = Guid.NewGuid().ToString(),
                         HallId = hallId,
+                        EventId = null, // ✅ NULL - Seat belongs to Hall, not Event
                         SeatNumber = $"{rowLabel}{seatNum}", // A1, A2, B1...
                         RowLabel = rowLabel,                 // A, B, C...
                         Section = "main",                    // Default: main section

@@ -191,7 +191,13 @@ public class TicketService : ITicketService
         await _seatRepository.SaveChangesAsync();
         await _ticketCheckinRepository.SaveChangesAsync();
 
-        return ApiResponse<CheckinResultDto>.SuccessResponse(new CheckinResultDto { Result = "Valid" }, "Check-in thành công");
+        return ApiResponse<CheckinResultDto>.SuccessResponse(
+            new CheckinResultDto 
+            { 
+                Result = "Valid",
+                TicketCode = ticketCode
+            }, 
+            "Check-in thành công");
     }
 
     public async Task<ApiResponse<bool>> CancelAsync(string ticketId, string currentUserId, string currentUserRole)
@@ -288,13 +294,20 @@ public class TicketService : ITicketService
     }
 
     public async Task<ApiResponse<CheckoutResponseDto>> CheckOutAsync(
-        CheckoutTicketRequest request,
-        string staffId)
+        string ticketCode,
+        string staffId,
+        string staffRole)
     {
         try
         {
-            // 1. Validate QR code and get ticket (use TicketCode as QR code)
-            var ticket = await _ticketRepository.GetByTicketCodeAsync(request.QrCode);
+            // 1. Validate staff role
+            if (staffRole != "staff" && staffRole != "organizer")
+            {
+                return ApiResponse<CheckoutResponseDto>.FailureResponse("Không có quyền check-out");
+            }
+
+            // 2. Validate ticket code and get ticket
+            var ticket = await _ticketRepository.GetByTicketCodeAsync(ticketCode);
             
             if (ticket == null)
             {
@@ -341,8 +354,7 @@ public class TicketService : ITicketService
             var checkoutTime = DateTime.UtcNow;
             await _ticketCheckinRepository.UpdateCheckoutTimeAsync(
                 activeCheckin.CheckinId, 
-                checkoutTime, 
-                request.Notes
+                checkoutTime
             );
 
             // ✨ ĐỔI TICKET STATUS THÀNH COMPLETED KHI CHECK-OUT
