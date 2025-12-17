@@ -135,7 +135,10 @@ public class SeatService : ISeatService
             }
 
             // Get seats with optional occupant info
-            var seats = await _seatRepo.GetEventSeatMapAsync(eventId, includeOccupantDetails);
+            // ✅ FIX: Get seats from Hall instead of querying by EventId (since seats belong to Hall, not Event)
+            var seats = eventData.HallId != null
+                ? await _seatRepo.GetSeatsByHallIdAsync(eventData.HallId)
+                : new List<IntervalEventRegistrationRepo.Entities.Seat>();
             var seatsList = seats.ToList();
 
             // Apply filters
@@ -154,7 +157,10 @@ public class SeatService : ISeatService
             }
 
             // Get statistics
-            var statistics = await _seatRepo.GetSeatStatisticsByEventAsync(eventId);
+            // ✅ FIX: Get statistics from Hall instead of querying by EventId
+            var statistics = eventData.HallId != null
+                ? await GetSeatStatisticsByHallAsync(eventData.HallId)
+                : new Dictionary<string, int> { ["total"] = 0, ["available"] = 0, ["reserved"] = 0, ["occupied"] = 0 };
 
             // Get tickets for this event to populate occupant info
             Dictionary<string, IntervalEventRegistrationRepo.Entities.Ticket?> seatTickets = new();
@@ -259,13 +265,75 @@ public class SeatService : ISeatService
             }
 
             // Get ALL seats with their current status (available, reserved, occupied)
-            var filter = new SeatMapFilterRequest
+            // ✅ FIX: Get seats directly from Hall instead of using GetEventSeatMapAsync
+            var registrationEvent = await _eventRepo.GetByIdAsync(eventId);
+            if (registrationEvent == null || registrationEvent.IsDeleted)
             {
-                IncludeOccupantDetails = false
-                // No Statuses filter - return all seats so students can see which are taken
+                return ApiResponse<SeatMapDto>.FailureResponse(
+                    "Sự kiện không tồn tại."
+                );
+            }
+
+            var seats = registrationEvent.HallId != null
+                ? await _seatRepo.GetSeatsByHallIdAsync(registrationEvent.HallId)
+                : new List<IntervalEventRegistrationRepo.Entities.Seat>();
+            var seatsList = seats.ToList();
+
+            // Get statistics
+            var statistics = registrationEvent.HallId != null
+                ? await GetSeatStatisticsByHallAsync(registrationEvent.HallId)
+                : new Dictionary<string, int> { ["total"] = 0, ["available"] = 0, ["reserved"] = 0, ["occupied"] = 0 };
+
+            // Get tickets for this event to populate occupant info
+            Dictionary<string, IntervalEventRegistrationRepo.Entities.Ticket?> seatTickets = new();
+            var tickets = await _ticketRepo.GetByEventIdAsync(eventId);
+            seatTickets = tickets
+                .Where(t => t.SeatId != null && t.Status != "cancelled")
+                .GroupBy(t => t.SeatId!)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderByDescending(t => t.RegisteredAt).FirstOrDefault()
+                );
+
+            // Group seats by row label
+            var groupedSeats = seatsList
+                .GroupBy(s => s.RowLabel)
+                .OrderBy(g => g.Key)
+                .ToList();
+
+            var rows = groupedSeats.Select(group => new SeatRowDto
+            {
+                RowNumber = GetRowNumberFromLabel(group.Key ?? ""),
+                RowLabel = group.Key ?? "",
+                Seats = group.OrderBy(s => s.SeatNumber).Select(seat =>
+                    MapToSeatItemDto(seat, false, seatTickets)
+                ).ToList()
+            }).ToList();
+
+            var hall = registrationEvent.HallId != null
+                ? await _hallRepo.GetByIdAsync(registrationEvent.HallId)
+                : null;
+
+            var result = new SeatMapDto
+            {
+                EventId = registrationEvent.EventId,
+                HallId = registrationEvent.HallId,
+                HallName = hall?.Name ?? "External Event",
+                TotalRows = groupedSeats.Count,
+                MaxSeatsPerRow = groupedSeats.Any()
+                    ? groupedSeats.Max(g => g.Count())
+                    : 0,
+                TotalSeats = statistics.GetValueOrDefault("total", 0),
+                AvailableSeats = statistics.GetValueOrDefault("available", 0),
+                ReservedSeats = statistics.GetValueOrDefault("reserved", 0),
+                OccupiedSeats = statistics.GetValueOrDefault("occupied", 0),
+                Rows = rows
             };
 
-            return await GetEventSeatMapAsync(eventId, null, "student", filter);
+            return ApiResponse<SeatMapDto>.SuccessResponse(
+                result,
+                "Lấy sơ đồ ghế trống cho đăng ký thành công."
+            );
         }
         catch (Exception ex)
         {
@@ -301,7 +369,7 @@ public class SeatService : ISeatService
         try
         {
             var statistics = await _seatRepo.GetSeatStatisticsByEventAsync(eventId);
-            
+
             return ApiResponse<Dictionary<string, int>>.SuccessResponse(
                 statistics,
                 "Lấy thống kê ghế thành công."
@@ -314,6 +382,22 @@ public class SeatService : ISeatService
                 "Không thể lấy thống kê ghế."
             );
         }
+    }
+
+    // ===== HELPER METHODS =====
+
+    private async Task<Dictionary<string, int>> GetSeatStatisticsByHallAsync(string hallId)
+    {
+        var seats = await _seatRepo.GetSeatsByHallIdAsync(hallId);
+        var seatsList = seats.ToList();
+
+        return new Dictionary<string, int>
+        {
+            ["total"] = seatsList.Count,
+            ["available"] = seatsList.Count(s => s.Status == "available"),
+            ["reserved"] = seatsList.Count(s => s.Status == "reserved"),
+            ["occupied"] = seatsList.Count(s => s.Status == "occupied")
+        };
     }
 
     // ===== HELPER METHODS =====
