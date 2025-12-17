@@ -583,43 +583,134 @@ public class EventService : IEventService
         {
             return ApiResponse<EventDetailDto>.FailureResponse("Bạn không có quyền hủy sự kiện này");
         }
+        
         var eventEntity = await _eventRepository.GetByIdAsync(eventId);
         if (eventEntity == null)
         {
             return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy sự kiện");
         }
-        var eventStart = new DateTime(eventEntity.Date.Year, eventEntity.Date.Month, eventEntity.Date.Day,
-            eventEntity.StartTime.Hour, eventEntity.StartTime.Minute, eventEntity.StartTime.Second, DateTimeKind.Utc);
-        var now = DateTime.UtcNow;
-        if (now > eventStart.AddHours(-48))
+        
+        if (eventEntity.Status == "cancelled")
         {
-            return ApiResponse<EventDetailDto>.FailureResponse("Chỉ được hủy trước thời điểm diễn ra 48 giờ");
+            return ApiResponse<EventDetailDto>.FailureResponse("Sự kiện đã bị hủy trước đó");
         }
+        
+        if (eventEntity.Status == "completed")
+        {
+            return ApiResponse<EventDetailDto>.FailureResponse("Không thể hủy sự kiện đã hoàn thành");
+        }
+        
+        // ✅ Validate cancel time (48 hours before event)
+        var eventStartUtc = new DateTime(
+            eventEntity.Date.Year, eventEntity.Date.Month, eventEntity.Date.Day,
+            eventEntity.StartTime.Hours, eventEntity.StartTime.Minutes, eventEntity.StartTime.Seconds, 
+            DateTimeKind.Utc
+        );
+        var now = DateTime.UtcNow;
+        
+        if (now > eventStartUtc.AddHours(-48))
+        {
+            var hoursUntilEvent = (eventStartUtc - now).TotalHours;
+            return ApiResponse<EventDetailDto>.FailureResponse(
+                $"Chỉ được hủy trước thời điểm diễn ra 48 giờ. Còn {hoursUntilEvent:F1} giờ nữa đến sự kiện."
+            );
+        }
+        
+        // ✅ Validate registration threshold (max 50% registered)
         if (eventEntity.TotalSeats > 0 && eventEntity.RegisteredCount > (eventEntity.TotalSeats / 2))
         {
-            return ApiResponse<EventDetailDto>.FailureResponse("Không thể hủy khi số lượng đăng ký vượt quá 50% số ghế");
+            return ApiResponse<EventDetailDto>.FailureResponse(
+                $"Không thể hủy khi số lượng đăng ký ({eventEntity.RegisteredCount}/{eventEntity.TotalSeats}) vượt quá 50% số ghế"
+            );
         }
+        
+        // ✅ Cancel event status
         eventEntity.Status = "cancelled";
+
+        // ✅ Cancel all tickets and return seats
+        var tickets = await _ticketRepository.GetByEventIdAsync(eventId);
+        int cancelledTicketsCount = 0;
+        int returnedSeatsCount = 0;
+
+        foreach (var ticket in tickets.Where(t => t.Status == "active" || t.Status == "checked-in"))
+        {
+            ticket.Status = "cancelled";
+            ticket.CancelledAt = DateTime.UtcNow;
+            ticket.CancelReason = "Event cancelled by organizer";
+            await _ticketRepository.UpdateAsync(ticket);
+            cancelledTicketsCount++;
+
+            // ✅ Return seat to available
+            if (!string.IsNullOrWhiteSpace(ticket.SeatId))
+            {
+                var seat = await _seatRepository.GetByIdAsync(ticket.SeatId);
+                if (seat != null && (seat.Status == "reserved" || seat.Status == "occupied"))
+                {
+                    seat.Status = "available";
+                    await _seatRepository.UpdateAsync(seat);
+                    returnedSeatsCount++;
+                }
+            }
+        }
+
+        // ✅ Reset event counts
+        eventEntity.RegisteredCount = 0;
+        eventEntity.CheckedInCount = 0;
+
         await _eventRepository.UpdateAsync(eventEntity);
+        await _ticketRepository.SaveChangesAsync();
+        await _seatRepository.SaveChangesAsync();
         await _eventRepository.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Cancelled event {EventId}: {CancelledTickets} tickets cancelled, {ReturnedSeats} seats returned",
+            eventId, cancelledTicketsCount, returnedSeatsCount);
+
         var dto = MapToDetailDto(eventEntity);
-        return ApiResponse<EventDetailDto>.SuccessResponse(dto, "Hủy sự kiện thành công");
+        return ApiResponse<EventDetailDto>.SuccessResponse(
+            dto, 
+            $"Hủy sự kiện thành công. Đã hủy {cancelledTicketsCount} vé và trả lại {returnedSeatsCount} ghế."
+        );
     }
 
     public async Task<ApiResponse<EventDetailDto>> CompleteEventAsync(string eventId, string currentUserId, string currentUserRole)
     {
         if (currentUserRole != "organizer")
         {
-            return ApiResponse<EventDetailDto>.FailureResponse("Bạn không có quyền đóng sự kiện này");
+            return ApiResponse<EventDetailDto>.FailureResponse("Đáng không có quyền đóng sự kiện này");
         }
         var eventEntity = await _eventRepository.GetByIdAsync(eventId);
         if (eventEntity == null)
         {
             return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy sự kiện");
         }
+        
         eventEntity.Status = "completed";
         await _eventRepository.UpdateAsync(eventEntity);
         await _eventRepository.SaveChangesAsync();
+        
+        // ✅ Reset all seats of the hall back to available
+        if (!string.IsNullOrWhiteSpace(eventEntity.HallId))
+        {
+            var seats = await _seatRepository.GetByHallIdAsync(eventEntity.HallId);
+            int resetCount = 0;
+            
+            foreach (var seat in seats.Where(s => s.Status == "occupied" || s.Status == "reserved"))
+            {
+                seat.Status = "available"; // ✅ RESET: occupied/reserved → available
+                await _seatRepository.UpdateAsync(seat);
+                resetCount++;
+            }
+            
+            if (resetCount > 0)
+            {
+                await _seatRepository.SaveChangesAsync();
+                _logger.LogInformation(
+                    "Reset {Count} seats to available for hall {HallId} after completing event {EventId}",
+                    resetCount, eventEntity.HallId, eventId);
+            }
+        }
+        
         var dto = MapToDetailDto(eventEntity);
         return ApiResponse<EventDetailDto>.SuccessResponse(dto, "Đóng sự kiện thành công");
     }
@@ -675,6 +766,17 @@ public class EventService : IEventService
                 await _ticketRepository.UpdateAsync(ticket);
             }
             
+            // ✅ Reset all seats of the hall back to available
+            if (!string.IsNullOrWhiteSpace(e.HallId))
+            {
+                var seats = await _seatRepository.GetByHallIdAsync(e.HallId);
+                foreach (var seat in seats.Where(s => s.Status == "occupied" || s.Status == "reserved"))
+                {
+                    seat.Status = "available"; // ✅ RESET: occupied/reserved → available
+                    await _seatRepository.UpdateAsync(seat);
+                }
+            }
+            
             // Note: Tickets với status "completed" đã check-out rồi - giữ nguyên
             
             changed = true;
@@ -695,7 +797,9 @@ public class EventService : IEventService
         {
             return ApiResponse<List<SeatDto>>.FailureResponse("Sự kiện không có hội trường");
         }
-        var seats = await _seatRepository.GetByEventIdAsync(eventId);
+        
+        // ✅ Get seats from Hall, not Event
+        var seats = await _seatRepository.GetByHallIdAsync(ev.HallId);
         var available = seats.Where(s => s.Status == "available").Select(s => new SeatDto
         {
             SeatId = s.SeatId,
@@ -703,6 +807,7 @@ public class EventService : IEventService
             RowLabel = s.RowLabel,
             Status = s.Status
         }).ToList();
+        
         return ApiResponse<List<SeatDto>>.SuccessResponse(available, "Lấy danh sách ghế trống theo sự kiện thành công");
     }
     private EventListItemDto MapToListItemDto(Event e)

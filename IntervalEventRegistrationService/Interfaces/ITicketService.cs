@@ -17,4 +17,9 @@ public interface ITicketService
     /// Check-out ticket (student leaving event)
     /// </summary>
     Task<ApiResponse<CheckoutResponseDto>> CheckOutAsync(string ticketCode, string staffId, string staffRole);
+    
+    /// <summary>
+    /// Reset all seats of event's hall back to available after event completes
+    /// </summary>
+    Task<ApiResponse<bool>> ResetEventSeatsAsync(string eventId);
 }
