@@ -168,7 +168,8 @@ public class TicketService : ITicketService
         {
             return ApiResponse<CheckinResultDto>.FailureResponse("Ticket Cancelled");
         }
-        if (ticket.Status == "used" || ticket.CheckInTime.HasValue)
+        // ✅ Check if already checked-in (removed legacy "used" status)
+        if (ticket.Status == "checked-in")
         {
             return ApiResponse<CheckinResultDto>.FailureResponse("Already Checked In");
         }
