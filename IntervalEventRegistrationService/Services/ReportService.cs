@@ -156,6 +156,7 @@ namespace IntervalEventRegistrationService.Services
 
                     return new EventReportItemResponse // Tạo object response theo event
                     {
+                        EventId = x.EventId, // Gán EventId để frontend dùng
                         EventName = x.Title, // Gán tên event
                         EventDate = x.Date, // Gán ngày event
                         TotalRegistrations = x.TotalTickets, // Gán tổng đăng ký
