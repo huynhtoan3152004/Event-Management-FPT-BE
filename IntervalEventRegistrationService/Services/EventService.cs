@@ -145,7 +145,7 @@ public class EventService : IEventService
                 return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy hội trường");
             }
 
-            // ✅ Check if hall has seats generated
+            // Kiểm tra nếu hall có ghế không
             var hallSeats = await _seatRepository.GetByHallIdAsync(request.HallId!);
             if (!hallSeats.Any())
             {
@@ -153,8 +153,8 @@ public class EventService : IEventService
                     "Hội trường chưa có ghế. Vui lòng tạo ghế cho hội trường trước khi tạo sự kiện.");
             }
 
-            // Auto get seat configuration from Hall
-            totalSeats = hallSeats.Count; // ✅ Use actual seat count from hall
+            // tự động lấy cấu hình hội trường
+            totalSeats = hallSeats.Count; // sử dụng số ghế thực tế từ hội trường
             maxRows = hall.MaxRows;
             maxSeatsPerRow = hall.MaxSeatsPerRow;
 

@@ -520,6 +520,7 @@ public class TicketService : ITicketService
             EventStartTime = ev.StartTime,
             EventEndTime = ev.EndTime,
             StudentId = t.StudentId,
+            StudentName = t.Student?.Name ?? string.Empty,
             SeatId = t.SeatId,
             SeatNumber = seatNumber
         };
