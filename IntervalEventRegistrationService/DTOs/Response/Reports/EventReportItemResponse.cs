@@ -8,6 +8,7 @@ namespace IntervalEventRegistrationService.DTOs.Response.Reports
 {
     public class EventReportItemResponse
     {
+        public string EventId { get; set; } = string.Empty; // Id sự kiện để frontend dùng điều hướng/chi tiết
         public string EventName { get; set; } = string.Empty; // Tên sự kiện
         public DateOnly EventDate { get; set; } // Ngày diễn ra sự kiện
         public int TotalRegistrations { get; set; } // Tổng lượt đăng ký của event
