@@ -659,17 +659,16 @@ public class EventService : IEventService
 
         await _eventRepository.UpdateAsync(eventEntity);
         await _ticketRepository.SaveChangesAsync();
-        await _seatRepository.SaveChangesAsync();
         await _eventRepository.SaveChangesAsync();
 
         _logger.LogInformation(
-            "Cancelled event {EventId}: {CancelledTickets} tickets cancelled, {ReturnedSeats} seats returned",
-            eventId, cancelledTicketsCount, returnedSeatsCount);
+            "Cancelled event {EventId}: {CancelledTickets} tickets cancelled",
+            eventId, cancelledTicketsCount);
 
         var dto = MapToDetailDto(eventEntity);
         return ApiResponse<EventDetailDto>.SuccessResponse(
             dto, 
-            $"Hủy sự kiện thành công. Đã hủy {cancelledTicketsCount} vé và trả lại {returnedSeatsCount} ghế."
+            $"Hủy sự kiện thành công. Đã hủy {cancelledTicketsCount} vé."
         );
     }
 
@@ -689,27 +688,7 @@ public class EventService : IEventService
         await _eventRepository.UpdateAsync(eventEntity);
         await _eventRepository.SaveChangesAsync();
         
-        // ✅ Reset all seats of the hall back to available
-        if (!string.IsNullOrWhiteSpace(eventEntity.HallId))
-        {
-            var seats = await _seatRepository.GetByHallIdAsync(eventEntity.HallId);
-            int resetCount = 0;
-            
-            foreach (var seat in seats.Where(s => s.Status == "occupied" || s.Status == "reserved"))
-            {
-                seat.Status = "available"; // ✅ RESET: occupied/reserved → available
-                await _seatRepository.UpdateAsync(seat);
-                resetCount++;
-            }
-            
-            if (resetCount > 0)
-            {
-                await _seatRepository.SaveChangesAsync();
-                _logger.LogInformation(
-                    "Reset {Count} seats to available for hall {HallId} after completing event {EventId}",
-                    resetCount, eventEntity.HallId, eventId);
-            }
-        }
+        // ❌ REMOVED: No need to reset seat.Status (status is calculated dynamically per event)
         
         var dto = MapToDetailDto(eventEntity);
         return ApiResponse<EventDetailDto>.SuccessResponse(dto, "Đóng sự kiện thành công");
@@ -766,16 +745,7 @@ public class EventService : IEventService
                 await _ticketRepository.UpdateAsync(ticket);
             }
             
-            // ✅ Reset all seats of the hall back to available
-            if (!string.IsNullOrWhiteSpace(e.HallId))
-            {
-                var seats = await _seatRepository.GetByHallIdAsync(e.HallId);
-                foreach (var seat in seats.Where(s => s.Status == "occupied" || s.Status == "reserved"))
-                {
-                    seat.Status = "available"; // ✅ RESET: occupied/reserved → available
-                    await _seatRepository.UpdateAsync(seat);
-                }
-            }
+            // ❌ REMOVED: No need to reset seat.Status (status is calculated dynamically per event)
             
             // Note: Tickets với status "completed" đã check-out rồi - giữ nguyên
             

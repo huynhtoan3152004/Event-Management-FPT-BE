@@ -10,18 +10,21 @@ namespace IntervalEventRegistrationService.Services;
 /// <summary>
 /// Ticket Service - Manages ticket registration, check-in, and check-out
 /// 
-/// SEAT STATUS FLOW (Seat belongs to Hall, not Event):
-/// 1. REGISTER: available → reserved (when ticket created)
-/// 2. CHECK-IN: reserved → occupied (when student checks in)
-/// 3. CHECK-OUT: occupied → occupied (keep for statistics)
-/// 4. CANCEL: reserved → available (if ticket cancelled before checkin)
-/// 5. RESET: occupied → available (after event completes)
+/// ✨ NEW LOGIC: SEAT STATUS IS CALCULATED DYNAMICALLY PER EVENT
+/// - Seats belong to Hall (shared across multiple events)
+/// - Seat.Status in database is NOT used (ignored)
+/// - Status is calculated dynamically from Tickets of each event:
+///   • available: No active ticket for this seat in this event
+///   • reserved: Has active ticket (registered/confirmed) but not checked-in
+///   • occupied: Has ticket that is checked-in
 /// 
 /// TICKET STATUS FLOW:
 /// 1. REGISTER: active (when created)
 /// 2. CHECK-IN: checked-in (when student enters)
 /// 3. CHECK-OUT: completed (when student leaves)
 /// 4. CANCEL: cancelled (if student cancels before checkin)
+/// 5. NO-SHOW: no-show (if not checked-in after event ends)
+/// 6. ABANDONED: abandoned (if checked-in but not checked-out after event ends)
 /// </summary>
 public class TicketService : ITicketService
 {
@@ -89,32 +92,42 @@ public class TicketService : ITicketService
         string? seatNumber = null;
         if (!string.IsNullOrWhiteSpace(ev.HallId))
         {
+            // Get existing tickets for this event to check seat availability
+            var existingTickets = await _ticketRepository.GetByEventIdAsync(eventId);
+            var takenSeatIds = existingTickets
+                .Where(t => t.SeatId != null && t.Status != "cancelled")
+                .Select(t => t.SeatId)
+                .ToHashSet();
+
             if (!string.IsNullOrWhiteSpace(request.SeatId))
             {
                 var seat = await _seatRepository.GetByIdAsync(request.SeatId);
-                // ✅ CHECK: Seat thuộc Hall và đang available
-                if (seat == null || seat.HallId != ev.HallId || seat.Status != "available")
+                // ✅ CHECK: Seat thuộc Hall
+                if (seat == null || seat.HallId != ev.HallId)
                 {
-                    return ApiResponse<TicketDto>.FailureResponse("Ghế không hợp lệ hoặc không trống");
+                    return ApiResponse<TicketDto>.FailureResponse("Ghế không hợp lệ");
                 }
+                
+                // ✅ CHECK: Seat chưa được đặt bởi ai trong event này
+                if (takenSeatIds.Contains(seat.SeatId))
+                {
+                    return ApiResponse<TicketDto>.FailureResponse("Ghế đã được đặt bởi người khác");
+                }
+                
                 seatId = seat.SeatId;
                 seatNumber = seat.SeatNumber;
-                seat.Status = "reserved"; // ✅ REGISTER: available → reserved
-                await _seatRepository.UpdateAsync(seat);
-                await _seatRepository.SaveChangesAsync();
+                // ❌ REMOVED: Do NOT update seat.Status in database (status is calculated dynamically per event)
             }
             else
             {
-                // ✅ Auto-assign seat from Hall's available seats
+                // ✅ Auto-assign seat from Hall's available seats (not taken by anyone in this event)
                 var seats = await _seatRepository.GetByHallIdAsync(ev.HallId);
-                var availableSeat = seats.FirstOrDefault(s => s.Status == "available");
+                var availableSeat = seats.FirstOrDefault(s => !takenSeatIds.Contains(s.SeatId));
                 if (availableSeat != null)
                 {
                     seatId = availableSeat.SeatId;
                     seatNumber = availableSeat.SeatNumber;
-                    availableSeat.Status = "reserved"; // ✅ REGISTER: available → reserved
-                    await _seatRepository.UpdateAsync(availableSeat);
-                    await _seatRepository.SaveChangesAsync();
+                    // ❌ REMOVED: Do NOT update seat.Status in database (status is calculated dynamically per event)
                 }
             }
         }
@@ -186,16 +199,7 @@ public class TicketService : ITicketService
         ev.CheckedInCount += 1;
         await _eventRepository.UpdateAsync(ev);
 
-        // ✅ CHECK-IN: reserved → occupied
-        if (!string.IsNullOrWhiteSpace(ticket.SeatId))
-        {
-            var seat = await _seatRepository.GetByIdAsync(ticket.SeatId!);
-            if (seat != null)
-            {
-                seat.Status = "occupied"; // ✅ CHECK-IN: reserved → occupied
-                await _seatRepository.UpdateAsync(seat);
-            }
-        }
+        // ❌ REMOVED: Do NOT update seat.Status (status is calculated dynamically per event)
 
         var checkin = new TicketCheckin
         {
@@ -209,7 +213,6 @@ public class TicketService : ITicketService
 
         await _ticketRepository.SaveChangesAsync();
         await _eventRepository.SaveChangesAsync();
-        await _seatRepository.SaveChangesAsync();
         await _ticketCheckinRepository.SaveChangesAsync();
 
         return ApiResponse<CheckinResultDto>.SuccessResponse(
@@ -279,16 +282,7 @@ public class TicketService : ITicketService
             : "Cancelled by student";
         await _ticketRepository.UpdateAsync(ticket);
 
-        // ✅ CANCEL: reserved → available (return seat to pool)
-        if (!string.IsNullOrWhiteSpace(ticket.SeatId))
-        {
-            var seat = await _seatRepository.GetByIdAsync(ticket.SeatId!);
-            if (seat != null)
-            {
-                seat.Status = "available"; // ✅ CANCEL: reserved → available
-                await _seatRepository.UpdateAsync(seat);
-            }
-        }
+        // ❌ REMOVED: Do NOT update seat.Status (status is calculated dynamically per event)
 
         if (ev.RegisteredCount > 0)
         {
@@ -298,7 +292,6 @@ public class TicketService : ITicketService
 
         await _ticketRepository.SaveChangesAsync();
         await _eventRepository.SaveChangesAsync();
-        await _seatRepository.SaveChangesAsync();
 
         return ApiResponse<bool>.SuccessResponse(true, "Hủy vé thành công");
     }
@@ -461,50 +454,14 @@ public class TicketService : ITicketService
     }
 
     /// <summary>
-    /// Reset all seats of event's hall back to available after event completes.
-    /// This should be called when event status changes to "completed".
+    /// ❌ DEPRECATED: No longer needed since seat.Status is calculated dynamically per event.
+    /// Seats belong to Hall (shared across events), status is determined by tickets, not database.
     /// </summary>
+    [Obsolete("Do not use. Seat status is now calculated dynamically from tickets per event.")]
     public async Task<ApiResponse<bool>> ResetEventSeatsAsync(string eventId)
     {
-        try
-        {
-            var ev = await _eventRepository.GetByIdAsync(eventId);
-            if (ev == null)
-            {
-                return ApiResponse<bool>.FailureResponse("Không tìm thấy sự kiện");
-            }
-
-            if (string.IsNullOrWhiteSpace(ev.HallId))
-            {
-                return ApiResponse<bool>.SuccessResponse(true, "Sự kiện không có hội trường, không cần reset ghế");
-            }
-
-            // Get all seats of the hall
-            var seats = await _seatRepository.GetByHallIdAsync(ev.HallId);
-            
-            // Reset all occupied seats back to available
-            int resetCount = 0;
-            foreach (var seat in seats.Where(s => s.Status == "occupied" || s.Status == "reserved"))
-            {
-                seat.Status = "available"; // ✅ RESET: occupied/reserved → available
-                await _seatRepository.UpdateAsync(seat);
-                resetCount++;
-            }
-            
-            if (resetCount > 0)
-            {
-                await _seatRepository.SaveChangesAsync();
-            }
-            
-            return ApiResponse<bool>.SuccessResponse(
-                true, 
-                $"Reset thành công {resetCount} ghế về trạng thái available"
-            );
-        }
-        catch (Exception ex)
-        {
-            return ApiResponse<bool>.FailureResponse($"Lỗi khi reset ghế: {ex.Message}");
-        }
+        // No-op: Seat status is calculated dynamically, no need to reset
+        return ApiResponse<bool>.SuccessResponse(true, "Seat status is calculated dynamically, no reset needed");
     }
 
     private TicketDto MapToDto(Ticket t, Event ev, string? seatNumber)

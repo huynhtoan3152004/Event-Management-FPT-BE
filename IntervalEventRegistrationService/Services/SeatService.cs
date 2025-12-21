@@ -134,47 +134,48 @@ public class SeatService : ISeatService
                 }
             }
 
-            // Get seats with optional occupant info
-            // ✅ FIX: Get seats from Hall instead of querying by EventId (since seats belong to Hall, not Event)
+            // Get seats from Hall (seats belong to Hall, not Event)
             var seats = eventData.HallId != null
                 ? await _seatRepo.GetSeatsByHallIdAsync(eventData.HallId)
                 : new List<IntervalEventRegistrationRepo.Entities.Seat>();
             var seatsList = seats.ToList();
 
-            // Apply filters
+            // Get tickets for this event to calculate dynamic status
+            var tickets = await _ticketRepo.GetByEventIdAsync(eventId);
+            var seatTickets = tickets
+                .Where(t => t.SeatId != null && t.Status != "cancelled")
+                .GroupBy(t => t.SeatId!)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderByDescending(t => t.RegisteredAt).FirstOrDefault()
+                );
+
+            // Calculate dynamic status for each seat based on event tickets
+            var seatsWithDynamicStatus = seatsList.Select(seat => new
+            {
+                Seat = seat,
+                DynamicStatus = CalculateSeatStatus(seat.SeatId, seatTickets)
+            }).ToList();
+
+            // Apply filters on dynamic status
             if (filter?.Statuses != null && filter.Statuses.Any())
             {
-                seatsList = seatsList
-                    .Where(s => filter.Statuses.Contains(s.Status.ToLower()))
+                seatsWithDynamicStatus = seatsWithDynamicStatus
+                    .Where(s => filter.Statuses.Contains(s.DynamicStatus.ToLower()))
                     .ToList();
             }
 
             if (filter?.RowNumbers != null && filter.RowNumbers.Any())
             {
-                seatsList = seatsList
-                    .Where(s => filter.RowNumbers.Contains(GetRowNumberFromLabel(s.RowLabel ?? "")))
+                seatsWithDynamicStatus = seatsWithDynamicStatus
+                    .Where(s => filter.RowNumbers.Contains(GetRowNumberFromLabel(s.Seat.RowLabel ?? "")))
                     .ToList();
             }
 
-            // Get statistics
-            // ✅ FIX: Get statistics from Hall instead of querying by EventId
-            var statistics = eventData.HallId != null
-                ? await GetSeatStatisticsByHallAsync(eventData.HallId)
-                : new Dictionary<string, int> { ["total"] = 0, ["available"] = 0, ["reserved"] = 0, ["occupied"] = 0 };
+            seatsList = seatsWithDynamicStatus.Select(s => s.Seat).ToList();
 
-            // Get tickets for this event to populate occupant info
-            Dictionary<string, IntervalEventRegistrationRepo.Entities.Ticket?> seatTickets = new();
-            if (includeOccupantDetails)
-            {
-                var tickets = await _ticketRepo.GetByEventIdAsync(eventId);
-                seatTickets = tickets
-                    .Where(t => t.SeatId != null && t.Status != "cancelled")
-                    .GroupBy(t => t.SeatId!)
-                    .ToDictionary(
-                        g => g.Key,
-                        g => g.OrderByDescending(t => t.RegisteredAt).FirstOrDefault()
-                    );
-            }
+            // Calculate statistics dynamically from current seats + tickets
+            var statistics = CalculateSeatStatistics(seatsList, seatTickets);
 
             // Group seats by row label
             var groupedSeats = seatsList
@@ -279,21 +280,18 @@ public class SeatService : ISeatService
                 : new List<IntervalEventRegistrationRepo.Entities.Seat>();
             var seatsList = seats.ToList();
 
-            // Get statistics
-            var statistics = registrationEvent.HallId != null
-                ? await GetSeatStatisticsByHallAsync(registrationEvent.HallId)
-                : new Dictionary<string, int> { ["total"] = 0, ["available"] = 0, ["reserved"] = 0, ["occupied"] = 0 };
-
-            // Get tickets for this event to populate occupant info
-            Dictionary<string, IntervalEventRegistrationRepo.Entities.Ticket?> seatTickets = new();
+            // Get tickets for this event to calculate dynamic status
             var tickets = await _ticketRepo.GetByEventIdAsync(eventId);
-            seatTickets = tickets
+            var seatTickets = tickets
                 .Where(t => t.SeatId != null && t.Status != "cancelled")
                 .GroupBy(t => t.SeatId!)
                 .ToDictionary(
                     g => g.Key,
                     g => g.OrderByDescending(t => t.RegisteredAt).FirstOrDefault()
                 );
+
+            // Calculate statistics dynamically from current seats + tickets
+            var statistics = CalculateSeatStatistics(seatsList, seatTickets);
 
             // Group seats by row label
             var groupedSeats = seatsList
@@ -386,17 +384,69 @@ public class SeatService : ISeatService
 
     // ===== HELPER METHODS =====
 
-    private async Task<Dictionary<string, int>> GetSeatStatisticsByHallAsync(string hallId)
+    /// <summary>
+    /// Calculate seat status dynamically based on event tickets.
+    /// Since seats belong to Hall (shared across events), we calculate status per event.
+    /// </summary>
+    private string CalculateSeatStatus(
+        string seatId, 
+        Dictionary<string, IntervalEventRegistrationRepo.Entities.Ticket?> seatTickets)
     {
-        var seats = await _seatRepo.GetSeatsByHallIdAsync(hallId);
-        var seatsList = seats.ToList();
+        if (!seatTickets.TryGetValue(seatId, out var ticket) || ticket == null)
+        {
+            return "available"; // No active ticket = available
+        }
+
+        // Check if ticket is checked in
+        if (ticket.CheckInTime.HasValue || ticket.TicketCheckins?.Any() == true)
+        {
+            return "occupied"; // Checked in = occupied
+        }
+
+        // Has active ticket (registered/confirmed) but not checked in
+        if (ticket.Status == "registered" || ticket.Status == "confirmed" || ticket.Status == "active")
+        {
+            return "reserved"; // Booked but not checked in = reserved
+        }
+
+        return "available"; // Default to available
+    }
+
+    /// <summary>
+    /// Calculate seat statistics dynamically from current seats + event tickets
+    /// </summary>
+    private Dictionary<string, int> CalculateSeatStatistics(
+        List<IntervalEventRegistrationRepo.Entities.Seat> seats,
+        Dictionary<string, IntervalEventRegistrationRepo.Entities.Ticket?> seatTickets)
+    {
+        var total = seats.Count;
+        var available = 0;
+        var reserved = 0;
+        var occupied = 0;
+
+        foreach (var seat in seats)
+        {
+            var status = CalculateSeatStatus(seat.SeatId, seatTickets);
+            switch (status)
+            {
+                case "available":
+                    available++;
+                    break;
+                case "reserved":
+                    reserved++;
+                    break;
+                case "occupied":
+                    occupied++;
+                    break;
+            }
+        }
 
         return new Dictionary<string, int>
         {
-            ["total"] = seatsList.Count,
-            ["available"] = seatsList.Count(s => s.Status == "available"),
-            ["reserved"] = seatsList.Count(s => s.Status == "reserved"),
-            ["occupied"] = seatsList.Count(s => s.Status == "occupied")
+            ["total"] = total,
+            ["available"] = available,
+            ["reserved"] = reserved,
+            ["occupied"] = occupied
         };
     }
 
@@ -419,13 +469,16 @@ public class SeatService : ISeatService
         bool includeOccupant,
         Dictionary<string, IntervalEventRegistrationRepo.Entities.Ticket?> seatTickets)
     {
+        // ✅ Calculate dynamic status based on event tickets (not database seat.Status)
+        string dynamicStatus = CalculateSeatStatus(seat.SeatId, seatTickets);
+
         var seatDto = new SeatItemDto
         {
             SeatId = seat.SeatId,
             RowNumber = GetRowNumberFromLabel(seat.RowLabel ?? ""),
             SeatNumber = int.TryParse(seat.SeatNumber, out int seatNum) ? seatNum : 0,
             Label = seat.SeatNumber,
-            Status = seat.Status
+            Status = dynamicStatus // ✅ Use dynamic status
         };
 
         if (includeOccupant && seatTickets.TryGetValue(seat.SeatId, out var ticket) && ticket != null)
@@ -514,8 +567,22 @@ public class SeatService : ISeatService
 
         var isBooked = activeTicket != null;
         
+        // ✅ Calculate dynamic status based on ticket
+        string dynamicStatus = "available";
+        if (activeTicket != null)
+        {
+            if (activeTicket.CheckInTime.HasValue || activeTicket.TicketCheckins?.Any() == true)
+            {
+                dynamicStatus = "occupied";
+            }
+            else if (activeTicket.Status == "active" || activeTicket.Status == "registered" || activeTicket.Status == "confirmed")
+            {
+                dynamicStatus = "reserved";
+            }
+        }
+
         // Get status display text
-        string statusDisplay = seat.Status switch
+        string statusDisplay = dynamicStatus switch
         {
             "available" => "Còn trống",
             "reserved" => "Đã đặt",
@@ -535,7 +602,7 @@ public class SeatService : ISeatService
             RowNumber = GetRowNumberFromLabel(seat.RowLabel ?? ""),
             SeatNumber = int.TryParse(seat.SeatNumber, out int seatNum) ? seatNum : 0,
             RowLabel = seat.RowLabel ?? "",
-            Status = seat.Status,
+            Status = dynamicStatus, // ✅ Use dynamic status
             StatusDisplay = statusDisplay,
             IsBooked = isBooked,
             CreatedAt = seat.CreatedAt,
