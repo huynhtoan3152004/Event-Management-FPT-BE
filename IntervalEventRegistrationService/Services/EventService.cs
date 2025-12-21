@@ -464,7 +464,18 @@ public class EventService : IEventService
         eventEntity.Date = request.Date;
         eventEntity.StartTime = request.StartTime;
         eventEntity.EndTime = request.EndTime;
-        eventEntity.Location = request.Location ?? hall?.Address;
+        
+        // ✅ FIX: When hall is selected, always use hall's address
+        // When hall changes or has hall, prioritize hall's address over request.Location
+        if (hasHall && hall != null)
+        {
+            eventEntity.Location = hall.Address; // Always use hall's address when hall is selected
+        }
+        else
+        {
+            eventEntity.Location = request.Location; // Use custom location when no hall
+        }
+        
         eventEntity.HallId = hasHall ? request.HallId : null;
         eventEntity.TotalSeats = totalSeats;
         eventEntity.NumberOfRows = maxRows;
