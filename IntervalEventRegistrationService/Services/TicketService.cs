@@ -8,23 +8,23 @@ using IntervalEventRegistrationService.Interfaces;
 namespace IntervalEventRegistrationService.Services;
 
 /// <summary>
-/// Ticket Service - Manages ticket registration, check-in, and check-out
+/// Ticket Service - Quản lý đăng ký vé, check-in và check-out
 /// 
-/// ✨ NEW LOGIC: SEAT STATUS IS CALCULATED DYNAMICALLY PER EVENT
-/// - Seats belong to Hall (shared across multiple events)
-/// - Seat.Status in database is NOT used (ignored)
-/// - Status is calculated dynamically from Tickets of each event:
-///   • available: No active ticket for this seat in this event
-///   • reserved: Has active ticket (registered/confirmed) but not checked-in
-///   • occupied: Has ticket that is checked-in
+/// ✨ LOGIC MỚI: TRẠNG THÁI GHẾ ĐƯỢC TÍNH TOÁN ĐỘNG THEO TỬNG EVENT
+/// - Ghế thuộc về Hall (dùng chung cho nhiều sự kiện)
+/// - Seat.Status trong database KHÔNG được sử dụng (bỏ qua)
+/// - Trạng thái được tính động từ Tickets của mỗi event:
+///   • available: Không có ticket active cho ghế này trong event
+///   • reserved: Có ticket active (registered/confirmed) nhưng chưa check-in
+///   • occupied: Có ticket đã check-in
 /// 
-/// TICKET STATUS FLOW:
-/// 1. REGISTER: active (when created)
-/// 2. CHECK-IN: checked-in (when student enters)
-/// 3. CHECK-OUT: completed (when student leaves)
-/// 4. CANCEL: cancelled (if student cancels before checkin)
-/// 5. NO-SHOW: no-show (if not checked-in after event ends)
-/// 6. ABANDONED: abandoned (if checked-in but not checked-out after event ends)
+/// LUỒNG TRẠNG THÁI VÉ:
+/// 1. ĐĂNG KÝ: active (khi tạo)
+/// 2. CHECK-IN: checked-in (khi sinh viên vào)
+/// 3. CHECK-OUT: completed (khi sinh viên ra)
+/// 4. HỦY: cancelled (nếu sinh viên hủy trước check-in)
+/// 5. KHÔNG ĐẾN: no-show (nếu không check-in sau khi event kết thúc)
+/// 6. BỎ DỞ: abandoned (nếu check-in nhưng không check-out sau khi event kết thúc)
 /// </summary>
 public class TicketService : ITicketService
 {
@@ -70,14 +70,14 @@ public class TicketService : ITicketService
         {
             return ApiResponse<TicketDto>.FailureResponse("Đã đăng ký vé cho sự kiện này");
         }
-        // ✅ Check time conflict with other events (compare TimeSpan directly)
+        // ✅ Kiểm tra xung đột thời gian với các event khác (so sánh TimeSpan trực tiếp)
         var myTickets = await _ticketRepository.GetByStudentIdAsync(studentId);
         foreach (var t in myTickets.Where(t => t.Status == "active" || t.Status == "checked-in"))
         {
             var other = await _eventRepository.GetByIdAsync(t.EventId);
             if (other != null && other.Date == ev.Date)
             {
-                // Compare TimeSpan directly for overlap detection
+                // So sánh TimeSpan trực tiếp để phát hiện trùng lặp
                 bool overlap = other.StartTime < ev.EndTime && other.EndTime > ev.StartTime;
                 if (overlap)
                 {
@@ -92,7 +92,7 @@ public class TicketService : ITicketService
         string? seatNumber = null;
         if (!string.IsNullOrWhiteSpace(ev.HallId))
         {
-            // Get existing tickets for this event to check seat availability
+            // Lấy tickets hiện có của event để kiểm tra ghế còn trống
             var existingTickets = await _ticketRepository.GetByEventIdAsync(eventId);
             var takenSeatIds = existingTickets
                 .Where(t => t.SeatId != null && t.Status != "cancelled")
@@ -102,13 +102,13 @@ public class TicketService : ITicketService
             if (!string.IsNullOrWhiteSpace(request.SeatId))
             {
                 var seat = await _seatRepository.GetByIdAsync(request.SeatId);
-                // ✅ CHECK: Seat thuộc Hall
+                // ✅ KIỂM TRA: Ghế thuộc Hall
                 if (seat == null || seat.HallId != ev.HallId)
                 {
                     return ApiResponse<TicketDto>.FailureResponse("Ghế không hợp lệ");
                 }
                 
-                // ✅ CHECK: Seat chưa được đặt bởi ai trong event này
+                // ✅ KIỂM TRA: Ghế chưa được đặt bởi ai trong event này
                 if (takenSeatIds.Contains(seat.SeatId))
                 {
                     return ApiResponse<TicketDto>.FailureResponse("Ghế đã được đặt bởi người khác");
@@ -116,18 +116,18 @@ public class TicketService : ITicketService
                 
                 seatId = seat.SeatId;
                 seatNumber = seat.SeatNumber;
-                // ❌ REMOVED: Do NOT update seat.Status in database (status is calculated dynamically per event)
+                // ❌ ĐÃ XÓA: KHÔNG cập nhật seat.Status trong database (trạng thái được tính động theo event)
             }
             else
             {
-                // ✅ Auto-assign seat from Hall's available seats (not taken by anyone in this event)
+                // ✅ Tự động gán ghế từ ghế trống của Hall (chưa ai đặt trong event này)
                 var seats = await _seatRepository.GetByHallIdAsync(ev.HallId);
                 var availableSeat = seats.FirstOrDefault(s => !takenSeatIds.Contains(s.SeatId));
                 if (availableSeat != null)
                 {
                     seatId = availableSeat.SeatId;
                     seatNumber = availableSeat.SeatNumber;
-                    // ❌ REMOVED: Do NOT update seat.Status in database (status is calculated dynamically per event)
+                    // ❌ ĐÃ XÓA: KHÔNG cập nhật seat.Status trong database (trạng thái được tính động theo event)
                 }
             }
         }
@@ -181,7 +181,7 @@ public class TicketService : ITicketService
         {
             return ApiResponse<CheckinResultDto>.FailureResponse("Ticket Cancelled");
         }
-        // ✅ Check if already checked-in (removed legacy "used" status)
+        // ✅ Kiểm tra đã check-in chưa (xóa trạng thái "used" cũ)
         if (ticket.Status == "checked-in")
         {
             return ApiResponse<CheckinResultDto>.FailureResponse("Already Checked In");
@@ -199,7 +199,7 @@ public class TicketService : ITicketService
         ev.CheckedInCount += 1;
         await _eventRepository.UpdateAsync(ev);
 
-        // ❌ REMOVED: Do NOT update seat.Status (status is calculated dynamically per event)
+        // ❌ ĐÃ XÓA: KHÔNG cập nhật seat.Status (trạng thái được tính động theo event)
 
         var checkin = new TicketCheckin
         {
@@ -255,7 +255,7 @@ public class TicketService : ITicketService
             return ApiResponse<bool>.FailureResponse("Không có quyền hủy vé");
         }
 
-        // ✅ Student only cancel 24h before event (UTC comparison)
+        // ✅ Sinh viên chỉ được hủy trước 24h (so sánh UTC)
         if (currentUserRole == "student")
         {
             var eventStartUtc = new DateTime(
@@ -273,7 +273,7 @@ public class TicketService : ITicketService
                 );
             }
         }
-        // Organizer can cancel anytime
+        // Organizer có thể hủy bất cứ lúc nào
 
         ticket.Status = "cancelled";
         ticket.CancelledAt = DateTime.UtcNow; // ✅ UTC
@@ -282,7 +282,7 @@ public class TicketService : ITicketService
             : "Cancelled by student";
         await _ticketRepository.UpdateAsync(ticket);
 
-        // ❌ REMOVED: Do NOT update seat.Status (status is calculated dynamically per event)
+        // ❌ ĐÃ XÓA: KHÔNG cập nhật seat.Status (trạng thái được tính động theo event)
 
         if (ev.RegisteredCount > 0)
         {
@@ -330,13 +330,13 @@ public class TicketService : ITicketService
     {
         try
         {
-            // 1. Validate staff role
+            // 1. Kiểm tra quyền staff
             if (staffRole != "staff" && staffRole != "organizer")
             {
                 return ApiResponse<CheckoutResponseDto>.FailureResponse("Không có quyền check-out");
             }
 
-            // 2. Validate ticket code and get ticket
+            // 2. Kiểm tra mã vé và lấy ticket
             var ticket = await _ticketRepository.GetByTicketCodeAsync(ticketCode);
             
             if (ticket == null)
@@ -346,7 +346,7 @@ public class TicketService : ITicketService
                 );
             }
 
-            // 2. Check if ticket has been checked in
+            // 2. Kiểm tra vé đã check-in chưa
             var activeCheckin = await _ticketCheckinRepository.GetActiveCheckinByTicketIdAsync(ticket.TicketId);
             
             if (activeCheckin == null)
@@ -356,7 +356,7 @@ public class TicketService : ITicketService
                 );
             }
 
-            // 3. Validate event status
+            // 3. Kiểm tra trạng thái sự kiện
             var eventData = await _eventRepository.GetByIdAsync(ticket.EventId);
             
             if (eventData == null)
@@ -366,10 +366,10 @@ public class TicketService : ITicketService
                 );
             }
 
-            // ✅ Allow checkout anytime after check-in (no time restriction)
-            // If ticket has been checked-in, student can checkout whenever they want to leave
+            // ✅ Cho phép checkout bất cứ lúc nào sau check-in (không giới hạn thời gian)
+            // Nếu vé đã check-in, sinh viên có thể checkout khi họ muốn rời đi
             
-            // ❌ COMMENTED OUT - Old validation: Only allow checkout 30 minutes before event ends
+            // ❌ ĐÃ COMMENT - Logic cũ: Chỉ cho phép checkout 30 phút trước khi event kết thúc
             // var now = DateTime.UtcNow;
             // var eventStart = new DateTime(
             //     eventData.Date.Year, eventData.Date.Month, eventData.Date.Day,
@@ -399,7 +399,7 @@ public class TicketService : ITicketService
             //     );
             // }
 
-            // 4. Update checkout time in TicketCheckin
+            // 4. Cập nhật thời gian checkout trong TicketCheckin
             var checkoutTime = DateTime.UtcNow;
             await _ticketCheckinRepository.UpdateCheckoutTimeAsync(
                 activeCheckin.CheckinId, 
@@ -410,18 +410,18 @@ public class TicketService : ITicketService
             ticket.Status = "completed";
             await _ticketRepository.UpdateAsync(ticket);
 
-            // ✅ KEEP seat status = "occupied" for statistics
-            // Seats will be reset to "available" when event completes
+            // ✅ GIỮ trạng thái seat = "occupied" cho thống kê
+            // Ghế sẽ được reset về "available" khi event hoàn thành
 
             await _ticketRepository.SaveChangesAsync();
 
-            // 5. Calculate duration
+            // 5. Tính thời lượng
             var duration = checkoutTime - activeCheckin.CheckinTime;
 
-            // 6. Get staff info
+            // 6. Lấy thông tin staff
             var staff = activeCheckin.Staff;
 
-            // 7. Build response
+            // 7. Tạo response
             var response = new CheckoutResponseDto
             {
                 TicketId = ticket.TicketId,
@@ -454,14 +454,14 @@ public class TicketService : ITicketService
     }
 
     /// <summary>
-    /// ❌ DEPRECATED: No longer needed since seat.Status is calculated dynamically per event.
-    /// Seats belong to Hall (shared across events), status is determined by tickets, not database.
+    /// ❌ ĐÃ LỖI THỜI: Không cần thiết nữa vì seat.Status được tính động theo event.
+    /// Ghế thuộc Hall (dùng chung), trạng thái được xác định bởi tickets, không phải database.
     /// </summary>
     [Obsolete("Do not use. Seat status is now calculated dynamically from tickets per event.")]
     public async Task<ApiResponse<bool>> ResetEventSeatsAsync(string eventId)
     {
-        // No-op: Seat status is calculated dynamically, no need to reset
-        return ApiResponse<bool>.SuccessResponse(true, "Seat status is calculated dynamically, no reset needed");
+        // Không làm gì: Trạng thái ghế được tính động, không cần reset
+        return ApiResponse<bool>.SuccessResponse(true, "Trạng thái ghế được tính động, không cần reset");
     }
 
     private TicketDto MapToDto(Ticket t, Event ev, string? seatNumber)

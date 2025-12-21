@@ -122,7 +122,7 @@ public class HallService : IHallService
             return ApiResponse<HallDetailDto>.FailureResponse("Không tìm thấy hội trường");
         }
 
-        // Check if reducing capacity
+        // Kiểm tra nếu giảm sức chứa
         if (request.Capacity < hall.Capacity)
         {
             var totalSeats = await _seatRepository.CountByHallIdAsync(hallId);
@@ -196,7 +196,7 @@ public class HallService : IHallService
 
             var seats = await _seatRepository.GetByHallIdAsync(hallId);
 
-            // Filter by status if provided
+            // Lọc theo trạng thái nếu có
             if (!string.IsNullOrEmpty(seatType))
             {
                 seats = seats.Where(s => s.Status == seatType).ToList();
@@ -239,7 +239,7 @@ public class HallService : IHallService
     }
 
     /// <summary>
-    /// Generate seats automatically for a hall
+    /// Tự động tạo ghế cho hội trường
     /// </summary>
     public async Task<ApiResponse<List<SeatDto>>> GenerateSeatsAsync(
         string hallId,
@@ -253,14 +253,14 @@ public class HallService : IHallService
             {
                 return ApiResponse<List<SeatDto>>.FailureResponse("Chỉ Organizer mới có quyền tạo ghế");
             }
-            // 1. Validate Hall exists
+            // 1. Kiểm tra Hall tồn tại
             var hall = await _hallRepository.GetByIdAsync(hallId);
             if (hall == null || hall.IsDeleted)
             {
                 return ApiResponse<List<SeatDto>>.FailureResponse("Không tìm thấy hội trường");
             }
 
-            // 2. Check if seats already exist
+            // 2. Kiểm tra ghế đã tồn tại chưa
             var existingSeats = await _seatRepository.GetByHallIdAsync(hallId);
             if (existingSeats.Any())
             {
@@ -269,12 +269,12 @@ public class HallService : IHallService
                 );
             }
 
-            // 3. Use Hall's max configuration if not provided
+            // 3. Sử dụng cấu hình max của Hall nếu không cung cấp
             int rows = request.Rows > 0 ? request.Rows : hall.MaxRows;
             int seatsPerRow = request.SeatsPerRow > 0 ? request.SeatsPerRow : hall.MaxSeatsPerRow;
             int totalSeats = rows * seatsPerRow;
 
-            // Validate capacity
+            // Kiểm tra sức chứa
             if (totalSeats > hall.Capacity)
             {
                 return ApiResponse<List<SeatDto>>.FailureResponse(
@@ -282,13 +282,13 @@ public class HallService : IHallService
                 );
             }
 
-            // 4. Generate seats
+            // 4. Tạo ghế
             var seats = new List<Seat>();
             var rowLabels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
             for (int row = 0; row < rows; row++)
             {
-                // Handle rows beyond Z (AA, AB, AC...)
+                // Xử lý hàng vượt quá Z (AA, AB, AC...)
                 string rowLabel = row < 26
                     ? rowLabels[row].ToString()
                     : $"{rowLabels[row / 26 - 1]}{rowLabels[row % 26]}";
@@ -299,11 +299,11 @@ public class HallService : IHallService
                     {
                         SeatId = Guid.NewGuid().ToString(),
                         HallId = hallId,
-                        EventId = null, // ✅ NULL - Seat belongs to Hall, not Event
+                        EventId = null, // ✅ NULL - Ghế thuộc về Hall, không thuộc Event
                         SeatNumber = $"{rowLabel}{seatNum}", // A1, A2, B1...
                         RowLabel = rowLabel,                 // A, B, C...
-                        Section = "main",                    // Default: main section
-                        Status = "available",                // Default: available
+                        Section = "main",                    // Mặc định: khu vực chính
+                        Status = "available",                // Mặc định: trống
                         IsDeleted = false,
                         CreatedAt = DateTime.UtcNow
                     };
@@ -312,11 +312,11 @@ public class HallService : IHallService
                 }
             }
 
-            // 5. Save to database
+            // 5. Lưu vào database
             await _seatRepository.AddRangeAsync(seats);
             await _seatRepository.SaveChangesAsync();
 
-            // 6. Map to DTO
+            // 6. Map sang DTO
             var seatDtos = seats.Select(s => new SeatDto
             {
                 SeatId = s.SeatId,
@@ -342,29 +342,29 @@ public class HallService : IHallService
     }
 
     /// <summary>
-    /// Check if hall is available (simplified - no date/time check)
+    /// Kiểm tra hội trường có trống không (đơn giản - không kiểm tra ngày/giờ)
     /// </summary>
     public async Task<ApiResponse<HallAvailabilityDto>> CheckAvailabilityAsync(string hallId)
     {
         try
         {
-            // 1. Validate Hall exists
+            // 1. Kiểm tra Hall tồn tại
             var hall = await _hallRepository.GetByIdAsync(hallId);
             if (hall == null || hall.IsDeleted)
             {
                 return ApiResponse<HallAvailabilityDto>.FailureResponse("Không tìm thấy hội trường");
             }
 
-            // 2. Check current status
+            // 2. Kiểm tra trạng thái hiện tại
             bool isAvailable = hall.Status == "active" && hall.IsActive;
 
-            // 3. Count total seats
+            // 3. Đếm tổng số ghế
             var totalSeats = await _seatRepository.CountByHallIdAsync(hallId);
 
-            // 4. Count available seats
+            // 4. Đếm ghế còn trống
             var availableSeats = await _seatRepository.CountAvailableSeatsAsync(hallId);
 
-            // 5. Get active events using this hall (có thể null)
+            // 5. Lấy các sự kiện đang hoạt động sử dụng hall (có thể null)
             List<Event>? activeEvents = null;
             try
             {
@@ -372,7 +372,7 @@ public class HallService : IHallService
             }
             catch
             {
-                // Ignore if method not found
+                // Bỏ qua nếu không tìm thấy phương thức
             }
 
             var dto = new HallAvailabilityDto

@@ -49,8 +49,8 @@ public class EventService : IEventService
         string? currentUserId = null, 
         string? currentUserRole = null)
     {
-        // For students, only show published events
-        // Organizers can see all events
+        // Với sinh viên, chỉ hiển thị các sự kiện đã công bố
+        // Organizer có thể xem tất cả sự kiện
         var statusFilter = request.Status;
         if (currentUserRole == "student" && string.IsNullOrWhiteSpace(statusFilter))
         {
@@ -101,8 +101,8 @@ public class EventService : IEventService
             return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy sự kiện");
         }
 
-        // Check permission for draft/pending/rejected events
-        // Only organizer role or event owner can view
+        // Kiểm tra quyền cho các sự kiện draft/pending/rejected
+        // Chỉ organizer hoặc chủ sự kiện mới được xem
         if (eventEntity.Status is "draft" or "pending" or "rejected")
         {
             if (currentUserRole != "organizer" && eventEntity.OrganizerId != currentUserId)
@@ -118,7 +118,7 @@ public class EventService : IEventService
 
     public async Task<ApiResponse<EventDetailDto>> CreateEventAsync(CreateEventRequest request, string organizerId)
     {
-        // Validate time
+        // Kiểm tra thời gian
         if (request.EndTime <= request.StartTime)
         {
             return ApiResponse<EventDetailDto>.FailureResponse("Thời gian kết thúc phải sau thời gian bắt đầu");
@@ -138,7 +138,7 @@ public class EventService : IEventService
 
         if (hasHall)
         {
-            // Validate Hall exists and get configuration
+            // Kiểm tra Hall tồn tại và lấy cấu hình
             hall = await _hallRepository.GetByIdAsync(request.HallId!);
             if (hall == null || hall.IsDeleted)
             {
@@ -158,7 +158,7 @@ public class EventService : IEventService
             maxRows = hall.MaxRows;
             maxSeatsPerRow = hall.MaxSeatsPerRow;
 
-            // Validate hall capacity/config to avoid FK/seat generation errors
+            // Kiểm tra sức chứa và cấu hình hội trường để tránh lỗi
             if (totalSeats <= 0)
             {
                 return ApiResponse<EventDetailDto>.FailureResponse("Hội trường không có sức chứa hợp lệ (Capacity phải > 0)");
@@ -172,14 +172,14 @@ public class EventService : IEventService
                 return ApiResponse<EventDetailDto>.FailureResponse("Hội trường không có cấu hình ghế mỗi hàng hợp lệ (MaxSeatsPerRow phải > 0)");
             }
 
-            // Check hall availability
+            // Kiểm tra hội trường còn trống không
             var hallAvailable = await _hallRepository.IsHallAvailableAsync(request.HallId!, request.Date, request.StartTime, request.EndTime);
             if (!hallAvailable)
             {
                 return ApiResponse<EventDetailDto>.FailureResponse("Hội trường đang có sự kiện trùng thời gian");
             }
 
-            // Check 5-hour gap requirement
+            // Kiểm tra yêu cầu khoảng cách 5 giờ giữa các sự kiện
             var (sameDayEvents, _) = await _eventRepository.GetAllAsync(1, 1000, null, null, request.Date, request.Date, request.HallId, null);
             foreach (var e in sameDayEvents)
             {
@@ -214,7 +214,7 @@ public class EventService : IEventService
             }
         }
 
-        // Normalize registration times to UTC (avoid Kind=Unspecified for PostgreSQL timestamp with time zone)
+        // Chuẩn hóa thời gian đăng ký về UTC (tránh Kind=Unspecified cho PostgreSQL)
         DateTime? regStartUtc = null;
         DateTime? regEndUtc = null;
         if (request.RegistrationStart.HasValue)
@@ -226,7 +226,7 @@ public class EventService : IEventService
             regEndUtc = DateTime.SpecifyKind(request.RegistrationEnd.Value, DateTimeKind.Utc);
         }
 
-        // Upload image if provided
+        // Upload ảnh nếu có
         string? imageUrl = null;
         if (request.ImageFile != null)
         {
@@ -262,7 +262,7 @@ public class EventService : IEventService
         await _eventRepository.AddAsync(eventEntity);
         await _eventRepository.SaveChangesAsync();
 
-        // Add Speakers if provided - validate existence first to avoid FK violation
+        // Thêm Speakers nếu có - kiểm tra tồn tại trước để tránh lỗi FK
         if (request.SpeakerIds != null && request.SpeakerIds.Any())
         {
             foreach (var speakerId in request.SpeakerIds)
@@ -293,8 +293,8 @@ public class EventService : IEventService
             await _eventRepository.SaveChangesAsync();
         }
 
-        // ❌ REMOVED: Do NOT generate seats for event - use Hall's seats instead
-        // Seats belong to Hall, not Event. Event only references HallId.
+        // ❌ ĐÃ XÓA: KHÔNG tạo ghế cho event - sử dụng ghế của Hall
+        // Ghế thuộc về Hall, không thuộc Event. Event chỉ tham chiếu HallId.
 
         var createdEvent = await _eventRepository.GetByIdAsync(eventEntity.EventId, includeRelations: true);
         var dto = MapToDetailDto(createdEvent!);
@@ -315,13 +315,13 @@ public class EventService : IEventService
             return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy sự kiện");
         }
 
-        // Check permission - Only organizer role can update
+        // Kiểm tra quyền - Chỉ organizer mới được cập nhật
         if (currentUserRole != "organizer")
         {
             return ApiResponse<EventDetailDto>.FailureResponse("Bạn không có quyền chỉnh sửa sự kiện này");
         }
 
-        // ✨ NEW: Validate event status - Cannot update completed/cancelled/ongoing events
+        // ✨ MỚI: Kiểm tra trạng thái sự kiện - Không thể cập nhật completed/cancelled/ongoing
         if (eventEntity.Status == "completed")
         {
             return ApiResponse<EventDetailDto>.FailureResponse(
@@ -340,20 +340,20 @@ public class EventService : IEventService
                 "Không thể chỉnh sửa sự kiện đang diễn ra");
         }
 
-        // ✨ Only allow updating draft/published events
+        // ✨ Chỉ cho phép cập nhật sự kiện draft/published
         if (eventEntity.Status != "draft" && eventEntity.Status != "published")
         {
             return ApiResponse<EventDetailDto>.FailureResponse(
                 $"Không thể chỉnh sửa sự kiện ở trạng thái '{eventEntity.Status}'");
         }
 
-        // Validate time
+        // Kiểm tra thời gian
         if (request.EndTime <= request.StartTime)
         {
             return ApiResponse<EventDetailDto>.FailureResponse("Thời gian kết thúc phải sau thời gian bắt đầu");
         }
 
-        // Get hall configuration (similar to CreateEvent)
+        // Lấy cấu hình hội trường (tương tự CreateEvent)
         bool hasHall = !string.IsNullOrWhiteSpace(request.HallId);
         Hall? hall = null;
         int totalSeats = eventEntity.TotalSeats; // Keep existing if no hall change
@@ -369,7 +369,7 @@ public class EventService : IEventService
                 return ApiResponse<EventDetailDto>.FailureResponse("Không tìm thấy hội trường");
             }
 
-            // ✅ Check if hall has seats
+            // ✅ Kiểm tra hall có ghế không
             var hallSeats = await _seatRepository.GetByHallIdAsync(request.HallId!);
             if (!hallSeats.Any())
             {
@@ -377,35 +377,35 @@ public class EventService : IEventService
                     "Hội trường chưa có ghế. Vui lòng tạo ghế cho hội trường trước.");
             }
 
-            // Auto-fetch hall configuration
+            // Tự động lấy cấu hình hội trường
             totalSeats = hallSeats.Count; // ✅ Use actual seat count from hall
             maxRows = hall.MaxRows;
             maxSeatsPerRow = hall.MaxSeatsPerRow;
 
-            // Validate hall capacity/config
+            // Kiểm tra cấu hình hội trường
             if (totalSeats <= 0 || maxRows <= 0 || maxSeatsPerRow <= 0)
             {
                 return ApiResponse<EventDetailDto>.FailureResponse("Hội trường không có cấu hình hợp lệ");
             }
 
-            // Cannot reduce total seats below registered count
+            // Không được giảm số ghế xuống dưới số người đã đăng ký
             if (totalSeats < eventEntity.RegisteredCount)
             {
                 return ApiResponse<EventDetailDto>.FailureResponse(
                     $"Hội trường mới chỉ có {totalSeats} ghế, không đủ cho {eventEntity.RegisteredCount} người đã đăng ký");
             }
 
-            // ✅ Check if hall changed (not seat config)
+            // ✅ Kiểm tra nếu hall thay đổi
             seatConfigChanged = eventEntity.HallId != request.HallId;
 
-            // Check hall availability (exclude current event)
+            // Kiểm tra hội trường còn trống (loại trừ event hiện tại)
             var conflicts = await _hallRepository.GetConflictingEventsAsync(request.HallId!, request.Date, request.StartTime, request.EndTime);
             if (conflicts.Any(c => c.EventId != eventId))
             {
                 return ApiResponse<EventDetailDto>.FailureResponse("Hội trường đang có sự kiện trùng thời gian");
             }
 
-            // Check 5-hour gap requirement
+            // Kiểm tra yêu cầu khoảng cách 5 giờ
             var (sameDayEvents, _) = await _eventRepository.GetAllAsync(1, 1000, null, null, request.Date, request.Date, request.HallId, null);
             foreach (var e in sameDayEvents.Where(x => x.EventId != eventId))
             {
@@ -440,7 +440,7 @@ public class EventService : IEventService
             }
         }
 
-        // Normalize registration times to UTC
+        // Chuẩn hóa thời gian đăng ký về UTC
         DateTime? regStartUtc = null;
         DateTime? regEndUtc = null;
         if (request.RegistrationStart.HasValue)
@@ -452,21 +452,21 @@ public class EventService : IEventService
             regEndUtc = DateTime.SpecifyKind(request.RegistrationEnd.Value, DateTimeKind.Utc);
         }
 
-        // Upload new image if provided
+        // Upload ảnh mới nếu có
         if (request.ImageFile != null)
         {
             eventEntity.ImageUrl = await _cloudinaryService.UploadAsync(request.ImageFile, "events");
         }
 
-        // Update fields
+        // Cập nhật các trường
         eventEntity.Title = request.Title;
         eventEntity.Description = request.Description;
         eventEntity.Date = request.Date;
         eventEntity.StartTime = request.StartTime;
         eventEntity.EndTime = request.EndTime;
         
-        // ✅ FIX: When hall is selected, always use hall's address
-        // When hall changes or has hall, prioritize hall's address over request.Location
+        // ✅ SỬa: Khi chọn hall, luôn sử dụng địa chỉ của hall
+        // Khi thay đổi hall hoặc có hall, ưu tiên địa chỉ hall hơn request.Location
         if (hasHall && hall != null)
         {
             eventEntity.Location = hall.Address; // Always use hall's address when hall is selected
@@ -488,14 +488,14 @@ public class EventService : IEventService
         await _eventRepository.UpdateAsync(eventEntity);
         await _eventRepository.SaveChangesAsync();
 
-        // ❌ REMOVED: Do NOT regenerate seats - use Hall's seats instead
-        // When hall changes, we just reference the new hall's existing seats.
-        // No need to create new seats for event.
+        // ❌ ĐÃ XÓA: KHÔNG tạo lại ghế - sử dụng ghế của Hall
+        // Khi thay đổi hall, chỉ cần tham chiếu đến ghế hiện có của hall mới.
+        // Không cần tạo ghế mới cho event.
 
-        // Update speakers if provided
+        // Cập nhật speakers nếu có
         if (request.SpeakerIds != null && request.SpeakerIds.Any())
         {
-            // Validate speakers exist
+            // Kiểm tra speakers tồn tại
             foreach (var speakerId in request.SpeakerIds.Distinct())
             {
                 if (string.IsNullOrWhiteSpace(speakerId))
@@ -510,10 +510,10 @@ public class EventService : IEventService
                 }
             }
 
-            // Remove old speakers
+            // Xóa speakers cũ
             eventEntity.EventSpeakers.Clear();
 
-            // Add new speakers
+            // Thêm speakers mới
             foreach (var speakerId in request.SpeakerIds.Distinct())
             {
                 var eventSpeaker = new EventSpeaker
@@ -543,7 +543,7 @@ public class EventService : IEventService
             return ApiResponse<bool>.FailureResponse("Không tìm thấy sự kiện");
         }
 
-        // Only organizer can delete
+        // Chỉ organizer mới được xóa
         if (currentUserRole != "organizer")
         {
             return ApiResponse<bool>.FailureResponse("Chỉ Organizer mới có quyền xóa sự kiện");
@@ -611,7 +611,7 @@ public class EventService : IEventService
             return ApiResponse<EventDetailDto>.FailureResponse("Không thể hủy sự kiện đã hoàn thành");
         }
         
-        // ✅ Validate cancel time (48 hours before event)
+        // ✅ Kiểm tra thời gian hủy (48 giờ trước sự kiện)
         var eventStartUtc = new DateTime(
             eventEntity.Date.Year, eventEntity.Date.Month, eventEntity.Date.Day,
             eventEntity.StartTime.Hour, eventEntity.StartTime.Minute, eventEntity.StartTime.Second, 
@@ -627,7 +627,7 @@ public class EventService : IEventService
             );
         }
         
-        // ✅ Validate registration threshold (max 50% registered)
+        // ✅ Kiểm tra ngưỡng đăng ký (tối đa 50% đã đăng ký)
         if (eventEntity.TotalSeats > 0 && eventEntity.RegisteredCount > (eventEntity.TotalSeats / 2))
         {
             return ApiResponse<EventDetailDto>.FailureResponse(
@@ -635,10 +635,10 @@ public class EventService : IEventService
             );
         }
         
-        // ✅ Cancel event status
+        // ✅ Hủy trạng thái sự kiện
         eventEntity.Status = "cancelled";
 
-        // ✅ Cancel all tickets and return seats
+        // ✅ Hủy tất cả vé và trả ghế
         var tickets = await _ticketRepository.GetByEventIdAsync(eventId);
         int cancelledTicketsCount = 0;
         int returnedSeatsCount = 0;
@@ -651,7 +651,7 @@ public class EventService : IEventService
             await _ticketRepository.UpdateAsync(ticket);
             cancelledTicketsCount++;
 
-            // ✅ Return seat to available
+            // ✅ Trả ghế về trạng thái trống
             if (!string.IsNullOrWhiteSpace(ticket.SeatId))
             {
                 var seat = await _seatRepository.GetByIdAsync(ticket.SeatId);
@@ -664,7 +664,7 @@ public class EventService : IEventService
             }
         }
 
-        // ✅ Reset event counts
+        // ✅ Reset số lượng sự kiện
         eventEntity.RegisteredCount = 0;
         eventEntity.CheckedInCount = 0;
 
@@ -699,13 +699,13 @@ public class EventService : IEventService
         await _eventRepository.UpdateAsync(eventEntity);
         await _eventRepository.SaveChangesAsync();
         
-        // ❌ REMOVED: No need to reset seat.Status (status is calculated dynamically per event)
+        // ❌ ĐÃ XÓA: Không cần reset seat.Status (trạng thái được tính động theo từng event)
         
         var dto = MapToDetailDto(eventEntity);
         return ApiResponse<EventDetailDto>.SuccessResponse(dto, "Đóng sự kiện thành công");
     }
 
-    // Helper methods
+    // Các hàm helper
     private async Task<bool> ApplyAutoTransitionsAsync(Event e)
     {
         bool changed = false;
@@ -716,7 +716,7 @@ public class EventService : IEventService
         DateTime eventEnd = new DateTime(e.Date.Year, e.Date.Month, e.Date.Day,
             e.EndTime.Hour, e.EndTime.Minute, e.EndTime.Second, DateTimeKind.Utc);
 
-        // 1. Auto-publish when registration starts
+        // 1. Tự động công bố khi bắt đầu đăng ký
         if ((e.Status == "draft" || e.Status == "pending") && 
             e.RegistrationStart.HasValue && 
             now >= e.RegistrationStart.Value)
@@ -725,14 +725,14 @@ public class EventService : IEventService
             changed = true;
         }
 
-        // 2. ✨ NEW: Auto-transition to "ongoing" when event starts
+        // 2. ✨ MỚI: Tự động chuyển sang "ongoing" khi sự kiện bắt đầu
         if (e.Status == "published" && now >= eventStart)
         {
             e.Status = "ongoing";
             changed = true;
         }
 
-        // 3. ✨ NEW: Auto-complete event AND mark no-show/abandoned tickets
+        // 3. ✨ MỚI: Tự động hoàn thành và đánh dấu vé no-show/abandoned
         if ((e.Status == "published" || e.Status == "ongoing") && 
             e.Status != "cancelled" && 
             e.Status != "completed" && 
@@ -742,23 +742,23 @@ public class EventService : IEventService
             
             var tickets = await _ticketRepository.GetByEventIdAsync(e.EventId);
             
-            // ✨ Mark tickets as "no-show" if not checked-in
+            // ✨ Đánh dấu vé "no-show" nếu chưa check-in
             foreach (var ticket in tickets.Where(t => t.Status == "active"))
             {
                 ticket.Status = "no-show"; // Đã đăng ký nhưng không check-in
                 await _ticketRepository.UpdateAsync(ticket);
             }
             
-            // ✨ Mark tickets as "abandoned" if checked-in but NOT checked-out
+            // ✨ Đánh dấu vé "abandoned" nếu đã check-in nhưng KHÔNG check-out
             foreach (var ticket in tickets.Where(t => t.Status == "checked-in"))
             {
                 ticket.Status = "abandoned"; // Check-in nhưng không check-out
                 await _ticketRepository.UpdateAsync(ticket);
             }
             
-            // ❌ REMOVED: No need to reset seat.Status (status is calculated dynamically per event)
+            // ❌ ĐÃ XÓA: Không cần reset seat.Status (trạng thái được tính động theo từng event)
             
-            // Note: Tickets với status "completed" đã check-out rồi - giữ nguyên
+            // Lưu ý: Vé với status "completed" đã check-out rồi - giữ nguyên
             
             changed = true;
         }
@@ -771,6 +771,10 @@ public class EventService : IEventService
         return changed;
     }
 
+    /// <summary>
+    /// Lấy danh sách ghế của sự kiện với trạng thái tính toán động từ tickets.
+    /// Ghế thuộc về Hall, trạng thái được tính dựa trên tickets của event cụ thể.
+    /// </summary>
     public async Task<ApiResponse<List<SeatDto>>> GetEventAvailableSeatsAsync(string eventId)
     {
         var ev = await _eventRepository.GetByIdAsync(eventId);
@@ -779,17 +783,66 @@ public class EventService : IEventService
             return ApiResponse<List<SeatDto>>.FailureResponse("Sự kiện không có hội trường");
         }
         
-        // ✅ Get ALL seats from Hall with ALL statuses (available, reserved, occupied)
+        // Lấy tất cả ghế từ Hall
         var seats = await _seatRepository.GetByHallIdAsync(ev.HallId);
+        
+        // Lấy tất cả tickets của event này để tính toán trạng thái ghế động
+        var tickets = await _ticketRepository.GetByEventIdAsync(eventId);
+        var seatTickets = tickets
+            .Where(t => t.SeatId != null && t.Status != "cancelled")
+            .GroupBy(t => t.SeatId!)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(t => t.RegisteredAt).FirstOrDefault()
+            );
+        
+        // Tính toán trạng thái động cho từng ghế dựa trên tickets của event
         var seatDtos = seats.Select(s => new SeatDto
         {
             SeatId = s.SeatId,
             SeatNumber = s.SeatNumber,
             RowLabel = s.RowLabel,
-            Status = s.Status  // ✅ Return all statuses: available, reserved, occupied
+            Status = CalculateSeatStatusForEvent(s.SeatId, seatTickets)
         }).OrderBy(s => s.RowLabel).ThenBy(s => s.SeatNumber).ToList();
         
-        return ApiResponse<List<SeatDto>>.SuccessResponse(seatDtos, $"Lấy danh sách ghế thành công ({seatDtos.Count} ghế)");
+        var availableCount = seatDtos.Count(s => s.Status == "available");
+        var reservedCount = seatDtos.Count(s => s.Status == "reserved");
+        var occupiedCount = seatDtos.Count(s => s.Status == "occupied");
+        
+        return ApiResponse<List<SeatDto>>.SuccessResponse(
+            seatDtos, 
+            $"Lấy danh sách ghế thành công (Tổng: {seatDtos.Count}, Trống: {availableCount}, Đã đặt: {reservedCount}, Đang sử dụng: {occupiedCount})"
+        );
+    }
+    
+    /// <summary>
+    /// Tính toán trạng thái ghế động dựa trên tickets của event.
+    /// - available: Không có ticket nào cho ghế này trong event
+    /// - reserved: Có ticket active nhưng chưa check-in
+    /// - occupied: Ticket đã check-in
+    /// </summary>
+    private string CalculateSeatStatusForEvent(
+        string seatId, 
+        Dictionary<string, Ticket?> seatTickets)
+    {
+        if (!seatTickets.TryGetValue(seatId, out var ticket) || ticket == null)
+        {
+            return "available"; // Không có ticket → ghế trống
+        }
+
+        // Đã check-in → đang sử dụng
+        if (ticket.CheckInTime.HasValue)
+        {
+            return "occupied";
+        }
+
+        // Có ticket active/registered/confirmed nhưng chưa check-in → đã đặt
+        if (ticket.Status == "active" || ticket.Status == "registered" || ticket.Status == "confirmed")
+        {
+            return "reserved";
+        }
+
+        return "available"; // Mặc định là trống
     }
     private EventListItemDto MapToListItemDto(Event e)
     {
@@ -856,43 +909,43 @@ public class EventService : IEventService
     }
 
     /// <summary>
-    /// ❌ DEPRECATED: This method should NOT be used anymore.
-    /// Seats belong to Hall, not Event. Events should reference Hall's existing seats.
-    /// Creating seats per event causes duplicate seats for the same hall.
+    /// ❌ ĐÃ LỖI THỜI: Phương thức này KHÔNG nên sử dụng nữa.
+    /// Ghế thuộc về Hall, không thuộc Event. Events nên tham chiếu ghế hiện có của Hall.
+    /// Tạo ghế cho mỗi event gây ra trùng lặp ghế cho cùng một hall.
     /// </summary>
-    [Obsolete("Do not use. Seats should be created for Hall only, not per Event.")]
+    [Obsolete("Đừng sử dụng. Ghế chỉ nên được tạo cho Hall, không phải cho mỗi Event.")]
     private async Task GenerateSeatsForEventAsync(string eventId, string hallId, int numberOfRows, int seatsPerRow)
     {
-        // This method is kept for backward compatibility but should not be called
+        // Phương thức này được giữ lại cho tương thích ngược nhưng không nên gọi
         throw new InvalidOperationException(
-            "GenerateSeatsForEventAsync is deprecated. Seats should be created for Hall, not Event.");
+            "GenerateSeatsForEventAsync đã lỗi thời. Ghế chỉ nên được tạo cho Hall, không phải Event.");
     }
 
     public async Task<ApiResponse<EventStatisticsDto>> GetEventStatisticsAsync(string eventId)
     {
         try
         {
-            _logger.LogInformation("Getting statistics for event: {EventId}", eventId);
+            _logger.LogInformation("Lấy thống kê cho sự kiện: {EventId}", eventId);
 
-            // Get event with relations
+            // Lấy event với các quan hệ
             var eventEntity = await _eventRepository.GetByIdAsync(eventId, includeRelations: true);
             
             if (eventEntity == null)
             {
-                _logger.LogWarning("Event not found: {EventId}", eventId);
+                _logger.LogWarning("Không tìm thấy sự kiện: {EventId}", eventId);
                 return ApiResponse<EventStatisticsDto>.FailureResponse("Không tìm thấy sự kiện");
             }
 
-            // Get all tickets for this event
+            // Lấy tất cả vé của sự kiện
             var allTickets = await _ticketRepository.GetByEventIdAsync(eventId);
             
-            // Get check-in records
+            // Lấy các bản ghi check-in
             var checkIns = await _ticketCheckinRepository.GetByEventIdAsync(eventId);
             
             _logger.LogInformation("Event {EventId}: {TicketCount} tickets, {CheckInCount} check-ins", 
                 eventId, allTickets.Count, checkIns.Count);
 
-            // Calculate statistics
+            // Tính toán thống kê
             var registeredCount = allTickets.Count(t => 
                 t.Status == "active" || 
                 t.Status == "checked-in" || 
@@ -912,7 +965,7 @@ public class EventService : IEventService
                 ? Math.Round((double)checkedOutCount / checkedInCount * 100, 1)
                 : 0;
 
-            // Calculate attendance duration statistics
+            // Tính toán thống kê thời gian tham dự
             var completedCheckIns = checkIns.Where(c => c.CheckoutTime != null).ToList();
             TimeSpan? avgDuration = null;
             TimeSpan? minDuration = null;
@@ -929,7 +982,7 @@ public class EventService : IEventService
                 maxDuration = durations.Max();
             }
 
-            // Get recent check-ins (last 10) with checkout info
+            // Lấy 10 check-in gần nhất với thông tin checkout
             var recentCheckIns = checkIns
                 .OrderByDescending(c => c.CheckinTime)
                 .Take(10)
@@ -939,12 +992,12 @@ public class EventService : IEventService
                     var seat = ticket?.Seat;
                     var student = ticket?.Student;
                     
-                    // Calculate duration if checked out
+                    // Tính thời lượng nếu đã checkout
                     TimeSpan? duration = c.CheckoutTime.HasValue 
                         ? c.CheckoutTime.Value - c.CheckinTime 
                         : null;
                     
-                    // Get status display
+                    // Lấy trạng thái hiển thị
                     string statusDisplay = c.CheckoutTime.HasValue 
                         ? "Đã check-out" 
                         : "Đang tham dự";

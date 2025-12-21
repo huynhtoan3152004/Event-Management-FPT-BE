@@ -46,7 +46,7 @@ public class SeatService : ISeatService
             var seats = await _seatRepo.GetSeatsByHallIdAsync(hallId);
             var seatsList = seats.ToList();
 
-            // Group seats by row label
+            // Nhóm ghế theo nhãn hàng
             var groupedSeats = seatsList
                 .GroupBy(s => s.RowLabel)
                 .OrderBy(g => g.Key)
@@ -114,7 +114,7 @@ public class SeatService : ISeatService
                 );
             }
 
-            // Check permissions for detailed view
+            // Kiểm tra quyền cho chế độ xem chi tiết
             bool includeOccupantDetails = filter?.IncludeOccupantDetails ?? false;
             if (includeOccupantDetails)
             {
@@ -125,7 +125,7 @@ public class SeatService : ISeatService
                     );
                 }
 
-                // Organizer must own the event
+                // Organizer phải sở hữu sự kiện
                 if (userRole == "organizer" && eventData.OrganizerId != userId)
                 {
                     return ApiResponse<SeatMapDto>.FailureResponse(
@@ -134,13 +134,13 @@ public class SeatService : ISeatService
                 }
             }
 
-            // Get seats from Hall (seats belong to Hall, not Event)
+            // Lấy ghế từ Hall (ghế thuộc Hall, không thuộc Event)
             var seats = eventData.HallId != null
                 ? await _seatRepo.GetSeatsByHallIdAsync(eventData.HallId)
                 : new List<IntervalEventRegistrationRepo.Entities.Seat>();
             var seatsList = seats.ToList();
 
-            // Get tickets for this event to calculate dynamic status
+            // Lấy tickets của event để tính toán trạng thái động
             var tickets = await _ticketRepo.GetByEventIdAsync(eventId);
             var seatTickets = tickets
                 .Where(t => t.SeatId != null && t.Status != "cancelled")
@@ -150,14 +150,14 @@ public class SeatService : ISeatService
                     g => g.OrderByDescending(t => t.RegisteredAt).FirstOrDefault()
                 );
 
-            // Calculate dynamic status for each seat based on event tickets
+            // Tính toán trạng thái động cho từng ghế dựa trên tickets của event
             var seatsWithDynamicStatus = seatsList.Select(seat => new
             {
                 Seat = seat,
                 DynamicStatus = CalculateSeatStatus(seat.SeatId, seatTickets)
             }).ToList();
 
-            // Apply filters on dynamic status
+            // Áp dụng bộ lọc trên trạng thái động
             if (filter?.Statuses != null && filter.Statuses.Any())
             {
                 seatsWithDynamicStatus = seatsWithDynamicStatus
@@ -174,10 +174,10 @@ public class SeatService : ISeatService
 
             seatsList = seatsWithDynamicStatus.Select(s => s.Seat).ToList();
 
-            // Calculate statistics dynamically from current seats + tickets
+            // Tính toán thống kê động từ ghế + tickets hiện tại
             var statistics = CalculateSeatStatistics(seatsList, seatTickets);
 
-            // Group seats by row label
+            // Nhóm ghế theo nhãn hàng
             var groupedSeats = seatsList
                 .GroupBy(s => s.RowLabel)
                 .OrderBy(g => g.Key)
@@ -241,7 +241,7 @@ public class SeatService : ISeatService
                 );
             }
 
-            // Check event status
+            // Kiểm tra sự kiện
             if (eventData.Status != "published")
             {
                 return ApiResponse<SeatMapDto>.FailureResponse(
@@ -249,7 +249,7 @@ public class SeatService : ISeatService
                 );
             }
 
-            // Check registration time window
+            // Kiểm tra thời gian đăng ký
             var now = DateTime.UtcNow;
             if (eventData.RegistrationStart.HasValue && now < eventData.RegistrationStart.Value)
             {
@@ -265,8 +265,8 @@ public class SeatService : ISeatService
                 );
             }
 
-            // Get ALL seats with their current status (available, reserved, occupied)
-            // ✅ FIX: Get seats directly from Hall instead of using GetEventSeatMapAsync
+            // Lấy TẤT CẢ ghế với trạng thái hiện tại (available, reserved, occupied)
+            // ✅ SỬA: Lấy ghế trực tiếp từ Hall thay vì dùng GetEventSeatMapAsync
             var registrationEvent = await _eventRepo.GetByIdAsync(eventId);
             if (registrationEvent == null || registrationEvent.IsDeleted)
             {
@@ -280,7 +280,7 @@ public class SeatService : ISeatService
                 : new List<IntervalEventRegistrationRepo.Entities.Seat>();
             var seatsList = seats.ToList();
 
-            // Get tickets for this event to calculate dynamic status
+            // Lấy tickets của event để tính toán trạng thái động
             var tickets = await _ticketRepo.GetByEventIdAsync(eventId);
             var seatTickets = tickets
                 .Where(t => t.SeatId != null && t.Status != "cancelled")
@@ -290,10 +290,10 @@ public class SeatService : ISeatService
                     g => g.OrderByDescending(t => t.RegisteredAt).FirstOrDefault()
                 );
 
-            // Calculate statistics dynamically from current seats + tickets
+            // Tính toán thống kê động từ ghế + tickets hiện tại
             var statistics = CalculateSeatStatistics(seatsList, seatTickets);
 
-            // Group seats by row label
+            // Nhóm ghế theo nhãn hàng
             var groupedSeats = seatsList
                 .GroupBy(s => s.RowLabel)
                 .OrderBy(g => g.Key)
@@ -382,11 +382,11 @@ public class SeatService : ISeatService
         }
     }
 
-    // ===== HELPER METHODS =====
+    // ===== CÁC HÀM HELPER =====
 
     /// <summary>
-    /// Calculate seat status dynamically based on event tickets.
-    /// Since seats belong to Hall (shared across events), we calculate status per event.
+    /// Tính toán trạng thái ghế động dựa trên tickets của event.
+    /// Vì ghế thuộc Hall (dùng chung cho nhiều event), ta tính trạng thái cho từng event.
     /// </summary>
     private string CalculateSeatStatus(
         string seatId, 
@@ -394,26 +394,26 @@ public class SeatService : ISeatService
     {
         if (!seatTickets.TryGetValue(seatId, out var ticket) || ticket == null)
         {
-            return "available"; // No active ticket = available
+            return "available"; // Không có ticket active = trống
         }
 
-        // Check if ticket is checked in
+        // Kiểm tra ticket đã check-in chưa
         if (ticket.CheckInTime.HasValue || ticket.TicketCheckins?.Any() == true)
         {
-            return "occupied"; // Checked in = occupied
+            return "occupied"; // Đã check-in = đang sử dụng
         }
 
-        // Has active ticket (registered/confirmed) but not checked in
+        // Có ticket active (registered/confirmed) nhưng chưa check-in
         if (ticket.Status == "registered" || ticket.Status == "confirmed" || ticket.Status == "active")
         {
-            return "reserved"; // Booked but not checked in = reserved
+            return "reserved"; // Đã đặt nhưng chưa check-in = đã đặt
         }
 
-        return "available"; // Default to available
+        return "available"; // Mặc định trống
     }
 
     /// <summary>
-    /// Calculate seat statistics dynamically from current seats + event tickets
+    /// Tính toán thống kê ghế động từ ghế hiện tại + tickets của event
     /// </summary>
     private Dictionary<string, int> CalculateSeatStatistics(
         List<IntervalEventRegistrationRepo.Entities.Seat> seats,
@@ -450,17 +450,17 @@ public class SeatService : ISeatService
         };
     }
 
-    // ===== HELPER METHODS =====
+    // ===== CÁC HÀM HELPER =====
 
     private int GetRowNumberFromLabel(string rowLabel)
     {
-        // Convert A -> 1, B -> 2, etc.
+        // Chuyển đổi A -> 1, B -> 2, v.v.
         if (string.IsNullOrEmpty(rowLabel)) return 0;
         if (rowLabel.Length == 1)
         {
             return rowLabel[0] - 'A' + 1;
         }
-        // Handle AA, AB, etc. if needed
+        // Xử lý AA, AB, v.v. nếu cần
         return 0;
     }
 
@@ -469,7 +469,7 @@ public class SeatService : ISeatService
         bool includeOccupant,
         Dictionary<string, IntervalEventRegistrationRepo.Entities.Ticket?> seatTickets)
     {
-        // ✅ Calculate dynamic status based on event tickets (not database seat.Status)
+        // ✅ Tính toán trạng thái động dựa trên tickets của event (không phải seat.Status trong DB)
         string dynamicStatus = CalculateSeatStatus(seat.SeatId, seatTickets);
 
         var seatDto = new SeatItemDto
@@ -478,7 +478,7 @@ public class SeatService : ISeatService
             RowNumber = GetRowNumberFromLabel(seat.RowLabel ?? ""),
             SeatNumber = int.TryParse(seat.SeatNumber, out int seatNum) ? seatNum : 0,
             Label = seat.SeatNumber,
-            Status = dynamicStatus // ✅ Use dynamic status
+            Status = dynamicStatus // ✅ Sử dụng trạng thái động
         };
 
         if (includeOccupant && seatTickets.TryGetValue(seat.SeatId, out var ticket) && ticket != null)
@@ -510,7 +510,7 @@ public class SeatService : ISeatService
                 seatId, userId, userRole
             );
 
-            // Validate permissions
+            // Kiểm tra quyền
             if (userRole != "organizer" && userRole != "staff")
             {
                 return ApiResponse<SeatDetailDto>.FailureResponse(
@@ -518,7 +518,7 @@ public class SeatService : ISeatService
                 );
             }
 
-            // Get seat with full details
+            // Lấy ghế với thông tin đầy đủ
             var seat = await _seatRepo.GetSeatDetailAsync(seatId);
             
             if (seat == null)
@@ -528,7 +528,7 @@ public class SeatService : ISeatService
                 );
             }
 
-            // If organizer, check ownership
+            // Nếu là organizer, kiểm tra quyền sở hữu
             if (userRole == "organizer" && !string.IsNullOrEmpty(seat.EventId))
             {
                 var eventData = await _eventRepo.GetByIdAsync(seat.EventId);
@@ -540,7 +540,7 @@ public class SeatService : ISeatService
                 }
             }
 
-            // Map to DTO
+            // Map sang DTO
             var seatDetail = await MapToSeatDetailDto(seat);
 
             return ApiResponse<SeatDetailDto>.SuccessResponse(
@@ -559,7 +559,7 @@ public class SeatService : ISeatService
 
     private async Task<SeatDetailDto> MapToSeatDetailDto(IntervalEventRegistrationRepo.Entities.Seat seat)
     {
-        // Get active ticket for this seat
+        // Lấy ticket active cho ghế này
         var activeTicket = seat.Tickets?
             .Where(t => t.Status != "cancelled")
             .OrderByDescending(t => t.RegisteredAt)
@@ -567,7 +567,7 @@ public class SeatService : ISeatService
 
         var isBooked = activeTicket != null;
         
-        // ✅ Calculate dynamic status based on ticket
+        // ✅ Tính trạng thái động dựa trên ticket
         string dynamicStatus = "available";
         if (activeTicket != null)
         {
@@ -581,7 +581,7 @@ public class SeatService : ISeatService
             }
         }
 
-        // Get status display text
+        // Lấy text hiển thị trạng thái
         string statusDisplay = dynamicStatus switch
         {
             "available" => "Còn trống",
@@ -590,7 +590,7 @@ public class SeatService : ISeatService
             _ => "Không xác định"
         };
 
-        // Generate label from RowLabel + SeatNumber (e.g., A9)
+        // Tạo nhãn từ RowLabel + SeatNumber (vd: A9)
         string label = $"{seat.RowLabel ?? ""}{seat.SeatNumber}";
 
         var seatDetail = new SeatDetailDto
@@ -602,14 +602,14 @@ public class SeatService : ISeatService
             RowNumber = GetRowNumberFromLabel(seat.RowLabel ?? ""),
             SeatNumber = int.TryParse(seat.SeatNumber, out int seatNum) ? seatNum : 0,
             RowLabel = seat.RowLabel ?? "",
-            Status = dynamicStatus, // ✅ Use dynamic status
+            Status = dynamicStatus, // ✅ Sử dụng trạng thái động
             StatusDisplay = statusDisplay,
             IsBooked = isBooked,
             CreatedAt = seat.CreatedAt,
             UpdatedAt = seat.UpdatedAt
         };
 
-        // Add occupant details if seat is booked
+        // Thêm thông tin người đặt nếu ghế đã được đặt
         if (isBooked && activeTicket?.Student != null)
         {
             var checkIn = activeTicket.TicketCheckins?.FirstOrDefault();
