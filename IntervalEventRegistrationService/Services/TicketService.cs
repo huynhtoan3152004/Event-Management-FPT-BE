@@ -181,10 +181,27 @@ public class TicketService : ITicketService
         {
             return ApiResponse<CheckinResultDto>.FailureResponse("Ticket Cancelled");
         }
-        // ✅ Kiểm tra đã check-in chưa (xóa trạng thái "used" cũ)
+        // ✅ Kiểm tra đã check-in chưa hoặc các trạng thái không hợp lệ
         if (ticket.Status == "checked-in")
         {
-            return ApiResponse<CheckinResultDto>.FailureResponse("Already Checked In");
+            return ApiResponse<CheckinResultDto>.FailureResponse("Vé đã được check-in trước đó");
+        }
+        if (ticket.Status == "completed")
+        {
+            return ApiResponse<CheckinResultDto>.FailureResponse("Vé đã hoàn thành (đã check-out), không thể check-in lại");
+        }
+        if (ticket.Status == "no-show")
+        {
+            return ApiResponse<CheckinResultDto>.FailureResponse("Vé đã bị đánh dấu không đến, không thể check-in");
+        }
+        if (ticket.Status == "abandoned")
+        {
+            return ApiResponse<CheckinResultDto>.FailureResponse("Vé đã bị đánh dấu bỏ dở, không thể check-in");
+        }
+        // Chỉ cho phép check-in vé có status = "active"
+        if (ticket.Status != "active")
+        {
+            return ApiResponse<CheckinResultDto>.FailureResponse($"Không thể check-in vé với trạng thái '{ticket.Status}'");
         }
 
         var ev = await _eventRepository.GetByIdAsync(ticket.EventId);
